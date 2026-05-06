@@ -13,6 +13,7 @@ import { syncMemberships } from '@/lib/sync/servicetitan/memberships';
 import { syncEstimates } from '@/lib/sync/servicetitan/estimates';
 import { syncEstimateAnalysisReport } from '@/lib/sync/servicetitan/estimate-analysis-report';
 import { syncStTechnicians } from '@/lib/sync/servicetitan/employees';
+import { syncGoogleReviews } from '@/lib/sync/google/reviews-sync';
 import { syncTechnicians } from '@/lib/sync/servicetitan/technicians';
 import { syncTechnicianReports } from '@/lib/sync/servicetitan/technician-reports';
 import { syncCallcenter } from '@/lib/sync/servicetitan/callcenter';
@@ -24,7 +25,7 @@ export const dynamic = 'force-dynamic';
 // Vercel Pro allows up to 800s on Node.js serverless functions.
 export const maxDuration = 800;
 
-const SOURCES = ['financial', 'jobs', 'memberships', 'memberships-backfill', 'estimates', 'estimate-analysis-report', 'st-technicians', 'technicians', 'technician-reports', 'callcenter'] as const;
+const SOURCES = ['financial', 'jobs', 'memberships', 'memberships-backfill', 'estimates', 'estimate-analysis-report', 'st-technicians', 'technicians', 'technician-reports', 'callcenter', 'google-reviews'] as const;
 type Source = (typeof SOURCES)[number];
 
 function authorized(req: NextRequest): boolean {
@@ -82,6 +83,11 @@ export async function POST(req: NextRequest) {
     }
     if (source === 'st-technicians') {
       const result = await syncStTechnicians('manual');
+      return NextResponse.json({ ok: true, source, ...result });
+    }
+    if (source === 'google-reviews') {
+      const force = (body as { force?: boolean }).force === true;
+      const result = await syncGoogleReviews('manual', { force });
       return NextResponse.json({ ok: true, source, ...result });
     }
     if (source === 'estimate-analysis-report') {

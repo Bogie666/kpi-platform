@@ -8,6 +8,7 @@ import {
   timestamp,
   index,
   uniqueIndex,
+  jsonb,
 } from 'drizzle-orm/pg-core';
 
 /**
@@ -216,3 +217,47 @@ export const membershipDaily = pgTable(
     dateIdx: index('mem_daily_date_idx').on(t.reportDate),
   }),
 );
+
+/**
+ * Google reviews cache — one row per Google review across all monitored
+ * Business Profile locations. Synced via /api/sync/run?source=google-reviews
+ * (or the `st_google_reviews` cron source, despite the name — it's google,
+ * we just keep the prefix consistent so cron-tick has one path).
+ */
+export const googleReviews = pgTable(
+  'google_reviews',
+  {
+    id: serial('id').primaryKey(),
+    /** Google's review id — stable across syncs. */
+    reviewId: text('review_id').notNull().unique(),
+    reviewerName: text('reviewer_name'),
+    rating: integer('rating').notNull(), // 1..5
+    reviewText: text('review_text'),
+    reviewReply: text('review_reply'),
+    locationName: text('location_name').notNull(),
+    /** Our friendly identifier — 'lex' / 'lex-etx' / 'lyons'. */
+    locationId: text('location_id').notNull(),
+    /** Google's account id (long numeric string). */
+    accountId: text('account_id').notNull(),
+    /** Google's createTime — when the review was posted. */
+    reviewDate: timestamp('review_date').notNull(),
+    syncedAt: timestamp('synced_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    locIdx: index('google_reviews_loc_idx').on(t.locationId),
+    dateIdx: index('google_reviews_date_idx').on(t.reviewDate),
+  }),
+);
+
+/** Per-sync-run status. Capped at last few rows; older just get aged out. */
+export const googleReviewsSyncStatus = pgTable('google_reviews_sync_status', {
+  id: serial('id').primaryKey(),
+  lastSyncAt: timestamp('last_sync_at').notNull(),
+  totalReviewsSynced: integer('total_reviews_synced').notNull(),
+  /** 'success' | 'skipped' | 'error'. */
+  syncStatus: text('sync_status').notNull(),
+  errorMessage: text('error_message'),
+  /** JSON shape: { fetched: { lex: 123, ... }, reported: { lex: 130, ... } } */
+  locationStats: jsonb('location_stats'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+});

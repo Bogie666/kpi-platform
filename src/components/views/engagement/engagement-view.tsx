@@ -7,6 +7,7 @@ import { Panel } from '@/components/primitives/panel';
 import { Skeleton } from '@/components/primitives/skeleton';
 import { SubTabBar } from '@/components/layout/sub-tab-bar';
 import { Podium } from '@/components/views/technicians/podium';
+import { ReviewsPanel } from './reviews-panel';
 import { fmtAsOf } from '@/lib/format/date';
 
 const SUB_OPTIONS = [
@@ -100,19 +101,7 @@ export function EngagementView() {
           )}
         </>
       ) : (
-        <Panel padding="cozy">
-          <div className="flex flex-col items-start gap-3 py-8 max-w-lg">
-            <div className="text-panel">Pending Google Business integration</div>
-            <p className="text-[13px] text-muted leading-relaxed">
-              The Reviews view shows aggregated Google reviews (total count, avg
-              rating, star distribution, 12-month trend, recent review cards).
-              It&apos;s wired off a <code className="font-mono text-[12px]">google_reviews</code>{' '}
-              table that gets populated by the Google Business Profile sync — not yet
-              connected. Once that sync is live, this panel will render the reviews
-              hero + rating trend + recent-reviews grid per UI-SPEC §5.6.
-            </p>
-          </div>
-        </Panel>
+        <ReviewsPanel />
       )}
     </div>
   );

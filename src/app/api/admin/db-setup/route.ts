@@ -96,6 +96,38 @@ async function runSchema(): Promise<{
       WHERE service_titan_id IS NOT NULL
   `;
 
+  // Google reviews cache (mirrored from Google Business Profile API by
+  // the google-reviews sync). Powers the Engagement → Reviews tab plus
+  // the AI insights endpoint.
+  await sql`
+    CREATE TABLE IF NOT EXISTS google_reviews (
+      id serial PRIMARY KEY,
+      review_id text NOT NULL UNIQUE,
+      reviewer_name text,
+      rating integer NOT NULL CHECK (rating BETWEEN 1 AND 5),
+      review_text text,
+      review_reply text,
+      location_name text NOT NULL,
+      location_id text NOT NULL,
+      account_id text NOT NULL,
+      review_date timestamp NOT NULL,
+      synced_at timestamp NOT NULL DEFAULT now()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS google_reviews_loc_idx ON google_reviews (location_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS google_reviews_date_idx ON google_reviews (review_date DESC)`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS google_reviews_sync_status (
+      id serial PRIMARY KEY,
+      last_sync_at timestamp NOT NULL,
+      total_reviews_synced integer NOT NULL,
+      sync_status text NOT NULL,
+      error_message text,
+      location_stats jsonb,
+      created_at timestamp NOT NULL DEFAULT now()
+    )
+  `;
+
   // avg_call_time_sec added to call_center_daily — the Call Center page
   // now shows "Avg Call Time" in place of "Avg Wait".
   await sql`

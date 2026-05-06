@@ -21,6 +21,7 @@ import {
   ESTIMATE_ANALYSIS_REPORT_SOURCE,
 } from '@/lib/sync/servicetitan/estimate-analysis-report';
 import { syncStTechnicians, ST_TECHNICIANS_SOURCE } from '@/lib/sync/servicetitan/employees';
+import { syncGoogleReviews, GOOGLE_REVIEWS_SOURCE } from '@/lib/sync/google/reviews-sync';
 import { trailingDays } from '@/lib/sync/window';
 
 function mtdWindow(): { from: string; to: string } {
@@ -157,6 +158,11 @@ const SOURCES: SourceConfig[] = [
     source: ST_TECHNICIANS_SOURCE,
     minIntervalMin: 60 * 23, // 1x per day — roster turnover is slow
     run: () => syncStTechnicians('cron'),
+  },
+  {
+    source: GOOGLE_REVIEWS_SOURCE,
+    minIntervalMin: 60 * 6, // 4x per day — new reviews trickle in slowly
+    run: () => syncGoogleReviews('cron'),
   },
 ];
 
