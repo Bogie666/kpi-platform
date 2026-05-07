@@ -3,7 +3,6 @@
 import { useUpcomingAppointments } from '@/lib/hooks/use-upcoming-appointments';
 import { SectionHead } from '@/components/primitives/section-head';
 import { Panel } from '@/components/primitives/panel';
-import { Skeleton } from '@/components/primitives/skeleton';
 import { fmtAsOf } from '@/lib/format/date';
 import { UpcomingAppointmentsPanel } from '@/components/views/operations/upcoming-appointments-panel';
 
@@ -28,18 +27,25 @@ export function AppointmentsView() {
       />
 
       {isLoading && (
-        <div className="flex flex-col gap-6">
-          <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <Panel key={i} padding="tight">
-                <Skeleton variant="stat" />
-              </Panel>
-            ))}
+        <Panel padding="cozy">
+          <div className="flex flex-col items-center justify-center py-16 gap-4">
+            <div
+              className="h-9 w-9 rounded-full border-[3px] border-border"
+              style={{
+                borderTopColor: 'var(--accent)',
+                animation: 'spin 0.8s linear infinite',
+              }}
+              aria-hidden
+            />
+            <div className="flex flex-col items-center gap-1">
+              <span className="text-[15px] font-medium">Loading appointments…</span>
+              <span className="text-[12px] text-muted">
+                Pulling the next 7 days from ServiceTitan, usually 5–10 seconds.
+              </span>
+            </div>
+            <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
           </div>
-          <Panel padding="cozy">
-            <Skeleton variant="chart" />
-          </Panel>
-        </div>
+        </Panel>
       )}
 
       {error && !isLoading && (

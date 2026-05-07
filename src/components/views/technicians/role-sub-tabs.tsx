@@ -31,7 +31,7 @@ export function RoleSubTabs({ value, onChange, roles, className }: RoleSubTabsPr
             className={cn(
               'shrink-0 flex flex-col items-start gap-0.5 px-3 py-1.5 rounded-[6px] transition-colors text-left',
               active
-                ? 'bg-surface-2 text-text shadow-[inset_0_0_0_1px_var(--border)]'
+                ? 'bg-accent-bg text-accent shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--accent)_45%,var(--border))]'
                 : 'text-muted hover:text-text hover:bg-surface-2/40',
             )}
           >

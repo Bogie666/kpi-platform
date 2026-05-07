@@ -29,7 +29,7 @@ export function SubTabBar({ value, onChange, options, className }: SubTabBarProp
             className={cn(
               'text-[12px] font-medium px-3 py-1.5 rounded-[6px] transition-colors',
               active
-                ? 'bg-surface-2 text-text shadow-[inset_0_0_0_1px_var(--border)]'
+                ? 'bg-accent-bg text-accent shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--accent)_45%,var(--border))]'
                 : 'text-muted hover:text-text hover:bg-surface-2/40',
             )}
           >

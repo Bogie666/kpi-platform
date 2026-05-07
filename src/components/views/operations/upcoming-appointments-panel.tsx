@@ -32,6 +32,20 @@ export function UpcomingAppointmentsPanel({ data }: UpcomingAppointmentsPanelPro
   const maxDay = Math.max(...data.byDay.map((d) => d.count), 1);
   const avgPerDay = data.byDay.length > 0 ? Math.round(data.totalAppointments / data.byDay.length) : 0;
 
+  // Build a map jobType → its dept (code/name) from the lower panel's
+  // grouping. Used to organize each day's expandable job-type list by
+  // department so it mirrors the "By department & job type" section.
+  const typeToDept = new Map<string, { code: string | null; name: string | null }>();
+  for (const g of data.groups) {
+    for (const t of g.jobTypes) {
+      // Last-write-wins is fine; ST job-type names are effectively unique
+      // across depts in this tenant. If a dupe ever shows up, the lower
+      // panel will reveal both anyway.
+      typeToDept.set(t.name, { code: g.departmentCode, name: g.departmentName });
+    }
+  }
+  const deptOrder = data.groups.map((g) => g.departmentName ?? 'Uncategorized');
+
   return (
     <div className="flex flex-col gap-6">
       {/* Headline stats */}
@@ -122,27 +136,85 @@ export function UpcomingAppointmentsPanel({ data }: UpcomingAppointmentsPanelPro
                       )}
                     </div>
                   )}
-                  {d.topJobTypes.length > 0 && (
-                    <details className="group mt-1">
-                      <summary className="cursor-pointer text-[11px] text-muted hover:text-foreground list-none flex items-center gap-1.5">
-                        <span className="transition-transform group-open:rotate-90" aria-hidden>›</span>
-                        <span>
-                          {d.topJobTypes.length} job type{d.topJobTypes.length === 1 ? '' : 's'}
-                        </span>
-                      </summary>
-                      <div className="mt-1.5 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5 pl-3 border-l border-border/60">
-                        {d.topJobTypes.map((t) => (
-                          <div
-                            key={t.name}
-                            className="flex items-center justify-between text-[11px]"
-                          >
-                            <span className="text-muted truncate pr-2">{t.name}</span>
-                            <span className="font-mono tabular-nums">{t.count}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </details>
-                  )}
+                  {d.topJobTypes.length > 0 && (() => {
+                    // Re-group this day's flat topJobTypes list by dept,
+                    // matching the "By department & job type" section.
+                    type DeptBucket = {
+                      code: string | null;
+                      name: string;
+                      types: Array<{ name: string; count: number }>;
+                      total: number;
+                    };
+                    const byDept = new Map<string, DeptBucket>();
+                    for (const t of d.topJobTypes) {
+                      const dept = typeToDept.get(t.name) ?? { code: null, name: 'Other' };
+                      const key = dept.name ?? 'Uncategorized';
+                      const bucket = byDept.get(key) ?? {
+                        code: dept.code,
+                        name: key,
+                        types: [],
+                        total: 0,
+                      };
+                      bucket.types.push(t);
+                      bucket.total += t.count;
+                      byDept.set(key, bucket);
+                    }
+                    // Order depts the same way the lower panel does.
+                    const orderedDepts = [
+                      ...deptOrder.filter((n) => byDept.has(n)).map((n) => byDept.get(n)!),
+                      ...Array.from(byDept.values()).filter(
+                        (b) => !deptOrder.includes(b.name),
+                      ),
+                    ];
+                    return (
+                      <details className="group mt-1">
+                        <summary className="cursor-pointer text-[11px] text-muted hover:text-foreground list-none flex items-center gap-1.5">
+                          <span className="transition-transform group-open:rotate-90" aria-hidden>
+                            ›
+                          </span>
+                          <span>
+                            {d.topJobTypes.length} job type{d.topJobTypes.length === 1 ? '' : 's'} ·{' '}
+                            {orderedDepts.length} dept{orderedDepts.length === 1 ? '' : 's'}
+                          </span>
+                        </summary>
+                        <div className="mt-1.5 flex flex-col gap-2 pl-3 border-l border-border/60">
+                          {orderedDepts.map((bucket) => {
+                            const color = bucket.code ? `var(--d-${bucket.code})` : 'var(--muted)';
+                            return (
+                              <div key={bucket.name} className="flex flex-col gap-0.5">
+                                <div className="flex items-center justify-between text-[11px]">
+                                  <span className="flex items-center gap-1.5">
+                                    <span
+                                      className="h-1.5 w-1.5 rounded-full shrink-0"
+                                      style={{ background: color }}
+                                      aria-hidden
+                                    />
+                                    <span className="font-medium">{bucket.name}</span>
+                                  </span>
+                                  <span className="font-mono tabular-nums text-muted">
+                                    {bucket.total}
+                                  </span>
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-0.5 pl-3.5">
+                                  {bucket.types
+                                    .sort((a, b) => b.count - a.count)
+                                    .map((t) => (
+                                      <div
+                                        key={t.name}
+                                        className="flex items-center justify-between text-[11px]"
+                                      >
+                                        <span className="text-muted truncate pr-2">{t.name}</span>
+                                        <span className="font-mono tabular-nums">{t.count}</span>
+                                      </div>
+                                    ))}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </details>
+                    );
+                  })()}
                 </div>
                 <span className="text-[13px] font-mono tabular-nums text-right pt-1">
                   {d.count}
