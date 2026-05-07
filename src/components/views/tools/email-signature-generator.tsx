@@ -2,7 +2,6 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { Camera, Check, Clipboard, Sparkles } from 'lucide-react';
-import { useAdminSecret } from '@/lib/hooks/use-admin-secret';
 
 const DEFAULT_PHOTO =
   'https://www.lexairconditioning.com/wp-content/uploads/2026/02/IMG_20260218_214609.png';
@@ -86,15 +85,17 @@ function buildSignatureHTML(opts: SignatureOpts): string {
 </table>`;
   }
 
-  const body = buildBodyHTML(opts, { includeCompanyLine: true });
+  // Photo variant — drop the company-name line and use a larger
+  // headshot so the left and right columns balance visually.
+  const body = buildBodyHTML(opts, { includeCompanyLine: false });
   const photoSrc = escapeHTML(opts.photoSrc);
   const altName = escapeHTML(opts.name || 'Photo');
   return `<table cellpadding="0" cellspacing="0" border="0" style="font-family: Arial, Helvetica, sans-serif; color: #333333; border-collapse: collapse;">
   <tr>
-    <td style="padding: 0 20px 0 0; vertical-align: top; border-right: 3px solid #C8A851;">
-      <img src="${photoSrc}" alt="${altName}" width="100" height="100" style="display: block; border-radius: 50%; border: 0;">
+    <td style="padding: 0 20px 0 0; vertical-align: middle; border-right: 3px solid #C8A851;">
+      <img src="${photoSrc}" alt="${altName}" width="140" height="140" style="display: block; border-radius: 50%; border: 0;">
     </td>
-    <td style="padding: 0 0 0 20px; vertical-align: top; line-height: 1.4;">
+    <td style="padding: 0 0 0 20px; vertical-align: middle; line-height: 1.4;">
       ${body}
     </td>
   </tr>
@@ -102,7 +103,6 @@ function buildSignatureHTML(opts: SignatureOpts): string {
 }
 
 export function EmailSignatureGenerator() {
-  const { authHeaders } = useAdminSecret();
   const [fullName, setFullName] = useState('');
   const [jobTitle, setJobTitle] = useState('');
   const [phone, setPhone] = useState('');
@@ -167,10 +167,11 @@ export function EmailSignatureGenerator() {
       // employees-table row. Auth-gated via the shared admin secret.
       const form = new FormData();
       form.append('file', file);
-      const res = await fetch('/api/admin/signature-photo', {
+      // Public endpoint (any employee, no admin login required) — gated
+      // only by same-origin referer + size/type limits.
+      const res = await fetch('/api/tools/signature-photo', {
         method: 'POST',
         body: form,
-        headers: authHeaders(),
       });
       if (!res.ok) {
         const j = (await res.json().catch(() => ({}))) as {

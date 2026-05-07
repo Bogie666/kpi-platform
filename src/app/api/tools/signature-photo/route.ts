@@ -3,7 +3,12 @@
  * the employee photos but no database writes — we just need a hosted
  * URL we can paste into the signature HTML.
  *
- *   POST /api/admin/signature-photo
+ * Intentionally NOT under /api/admin/ — any employee can upload from
+ * the Tools tab without first signing into admin. Strict size + type
+ * limits + same-origin referer check protect the bucket from random
+ * outside abuse.
+ *
+ *   POST /api/tools/signature-photo
  *     multipart/form-data: { file: File }
  *     → { url }
  */
@@ -14,12 +19,19 @@ import { put } from '@vercel/blob';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-function authorized(req: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return true; // dev
-  const bearer = req.headers.get('authorization')?.replace(/^Bearer\s+/i, '');
-  const query = req.nextUrl.searchParams.get('secret');
-  return bearer === secret || query === secret;
+/** Reject requests that aren't coming from a browser viewing this app
+ *  — keeps the bucket from being trivially abused as a public dropbox.
+ *  Cheap-and-reasonable, not iron-clad. */
+function sameOrigin(req: NextRequest): boolean {
+  const host = req.headers.get('host') ?? '';
+  if (!host) return false;
+  const refUrl = req.headers.get('referer') ?? req.headers.get('origin') ?? '';
+  if (!refUrl) return false;
+  try {
+    return new URL(refUrl).host === host;
+  } catch {
+    return false;
+  }
 }
 
 function blobKey(file: File): string {
@@ -33,8 +45,11 @@ function blobKey(file: File): string {
 }
 
 export async function POST(req: NextRequest) {
-  if (!authorized(req)) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  if (!sameOrigin(req)) {
+    return NextResponse.json(
+      { error: 'cross-origin uploads are not allowed' },
+      { status: 403 },
+    );
   }
 
   let form: FormData;
