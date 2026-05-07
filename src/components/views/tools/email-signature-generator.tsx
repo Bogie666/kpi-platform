@@ -115,7 +115,10 @@ export function EmailSignatureGenerator() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [generated, setGenerated] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [withPhoto, setWithPhoto] = useState(true);
+  // Text-only (LEX logo on the left) is the default — most employees
+  // don't have a hosted headshot handy, and it produces a clean
+  // signature with zero setup. Toggle to "With photo" to upload one.
+  const [withPhoto, setWithPhoto] = useState(false);
   const previewRef = useRef<HTMLDivElement | null>(null);
 
   const getPhotoSrc = useCallback(() => {
