@@ -1,9 +1,8 @@
 'use client';
 
-import { Calendar, Code, FileSpreadsheet, Globe, Mail, Wrench, Zap } from 'lucide-react';
+import { Calendar, Code, Globe, Mail, Zap } from 'lucide-react';
 import { SectionHead } from '@/components/primitives/section-head';
 import { CollapsibleTool } from './collapsible-tool';
-import { UnsoldEstimateProcessor } from './unsold-estimate-processor';
 import { ReviewCarouselEmbed } from './review-carousel-embed';
 import { EmailSignatureGenerator } from './email-signature-generator';
 import { SchedulerWidget } from './scheduler-widget';
@@ -21,15 +20,6 @@ export function ToolsView() {
       </p>
 
       <div className="flex flex-col gap-3">
-        <CollapsibleTool
-          icon={FileSpreadsheet}
-          iconColorVar="--up"
-          title="Unsold Estimate Processor"
-          description="Pull unsold estimates for a date range, group by opportunity, export Excel."
-        >
-          <UnsoldEstimateProcessor />
-        </CollapsibleTool>
-
         <CollapsibleTool
           icon={Globe}
           iconColorVar="--d-commercial"
@@ -76,10 +66,6 @@ export function ToolsView() {
         </CollapsibleTool>
       </div>
 
-      <div className="flex items-center gap-2 text-[11px] text-muted/70 mt-2">
-        <Wrench className="h-3 w-3" />
-        <span>All tools run locally — no external admin-api dependency.</span>
-      </div>
     </div>
   );
 }

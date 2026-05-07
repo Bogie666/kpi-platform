@@ -7,48 +7,48 @@ const DEFAULT_PHOTO =
   'https://www.lexairconditioning.com/wp-content/uploads/2026/02/IMG_20260218_214609.png';
 const DEFAULT_WEBSITE = 'https://www.lexairconditioning.com';
 
-function buildSignatureHTML(
-  photoSrc: string,
-  name: string,
-  title: string,
-  phone: string,
-  email: string,
-  website: string,
-): string {
-  const displayName = name || 'Your Name';
-  const websiteDisplay = website ? website.replace(/^https?:\/\/(www\.)?/, '') : '';
+interface SignatureOpts {
+  withPhoto: boolean;
+  photoSrc: string;
+  name: string;
+  title: string;
+  phone: string;
+  email: string;
+  website: string;
+}
 
-  const titleRow = title
-    ? `\n        <tr>\n          <td style="padding-bottom:4px;">\n            <span style="font-family:Arial,sans-serif;font-size:11px;font-weight:600;color:#c9a84c;letter-spacing:2px;text-transform:uppercase;">${title}</span>\n          </td>\n        </tr>`
+function rowsForBody(opts: Pick<SignatureOpts, 'name' | 'title' | 'phone' | 'email' | 'website'>): {
+  titleRow: string;
+  phoneRow: string;
+  emailRow: string;
+  websiteRow: string;
+  websiteDisplay: string;
+} {
+  const websiteDisplay = opts.website ? opts.website.replace(/^https?:\/\/(www\.)?/, '') : '';
+  const titleRow = opts.title
+    ? `\n        <tr>\n          <td style="padding-bottom:4px;">\n            <span style="font-family:Arial,sans-serif;font-size:11px;font-weight:600;color:#c9a84c;letter-spacing:2px;text-transform:uppercase;">${opts.title}</span>\n          </td>\n        </tr>`
     : '';
-  const phoneRow = phone
-    ? `\n        <tr>\n          <td style="padding-bottom:5px;">\n            <span style="color:#1a2b5e;font-size:10px;">&#9679;&nbsp;</span><a href="tel:${phone.replace(/\D/g, '')}" style="font-family:Arial,sans-serif;font-size:13px;color:#3a4a62;text-decoration:none;">${phone}</a>\n          </td>\n        </tr>`
+  const phoneRow = opts.phone
+    ? `\n        <tr>\n          <td style="padding-bottom:5px;">\n            <span style="color:#1a2b5e;font-size:10px;">&#9679;&nbsp;</span><a href="tel:${opts.phone.replace(/\D/g, '')}" style="font-family:Arial,sans-serif;font-size:13px;color:#3a4a62;text-decoration:none;">${opts.phone}</a>\n          </td>\n        </tr>`
     : '';
-  const emailRow = email
-    ? `\n        <tr>\n          <td style="padding-bottom:5px;">\n            <span style="color:#1a2b5e;font-size:10px;">&#9679;&nbsp;</span><a href="mailto:${email}" style="font-family:Arial,sans-serif;font-size:13px;color:#3a4a62;text-decoration:none;">${email}</a>\n          </td>\n        </tr>`
+  const emailRow = opts.email
+    ? `\n        <tr>\n          <td style="padding-bottom:5px;">\n            <span style="color:#1a2b5e;font-size:10px;">&#9679;&nbsp;</span><a href="mailto:${opts.email}" style="font-family:Arial,sans-serif;font-size:13px;color:#3a4a62;text-decoration:none;">${opts.email}</a>\n          </td>\n        </tr>`
     : '';
-  const websiteRow = website
-    ? `\n        <tr>\n          <td>\n            <span style="color:#1a2b5e;font-size:10px;">&#9679;&nbsp;</span><a href="${website}" target="_blank" style="font-family:Arial,sans-serif;font-size:13px;color:#3a4a62;text-decoration:none;">${websiteDisplay}</a>\n          </td>\n        </tr>`
+  const websiteRow = opts.website
+    ? `\n        <tr>\n          <td>\n            <span style="color:#1a2b5e;font-size:10px;">&#9679;&nbsp;</span><a href="${opts.website}" target="_blank" style="font-family:Arial,sans-serif;font-size:13px;color:#3a4a62;text-decoration:none;">${websiteDisplay}</a>\n          </td>\n        </tr>`
     : '';
+  return { titleRow, phoneRow, emailRow, websiteRow, websiteDisplay };
+}
 
-  return `<table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-family:Arial,sans-serif;">
-  <tr>
-    <td colspan="4" style="padding-bottom:12px;font-size:0;line-height:0;">
-      <table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;width:100%;">
-        <tr><td style="height:3px;background-color:#c9a84c;border-radius:2px;font-size:0;line-height:0;">&nbsp;</td></tr>
-      </table>
-    </td>
-  </tr>
-  <tr>
-    <td valign="top" style="vertical-align:top;">
-      <img src="${photoSrc}" alt="${displayName}" width="130" height="165" style="display:block;border-radius:6px;width:130px;height:165px;object-fit:cover;object-position:center top;" />
-    </td>
-    <td style="width:20px;">&nbsp;</td>
-    <td style="width:2px;background:linear-gradient(to bottom,#c9a84c,#1a2b5e);padding:0;">&nbsp;</td>
-    <td valign="top" style="padding-left:20px;vertical-align:top;">
-      <table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+function buildSignatureHTML(opts: SignatureOpts): string {
+  const displayName = opts.name || 'Your Name';
+  const { titleRow, phoneRow, emailRow, websiteRow } = rowsForBody(opts);
+
+  // Body cells (name + LEX logo + contact rows) — shared between the
+  // photo and no-photo variants below.
+  const body = `<table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
         <tr>
-          <td style="padding-bottom:${title ? '2px' : '8px'};">
+          <td style="padding-bottom:${opts.title ? '2px' : '8px'};">
             <span style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:22px;font-weight:700;color:#0d1a2e;letter-spacing:0.5px;line-height:1;">${displayName}</span>
           </td>
         </tr>${titleRow}
@@ -66,7 +66,44 @@ function buildSignatureHTML(
             </table>
           </td>
         </tr>${phoneRow}${emailRow}${websiteRow}
+      </table>`;
+
+  if (!opts.withPhoto) {
+    // Compact variant — no photo cell, just the gold accent bar above
+    // the name + logo + contact rows. Same look-and-feel without the
+    // headshot column.
+    return `<table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-family:Arial,sans-serif;">
+  <tr>
+    <td style="padding-bottom:12px;font-size:0;line-height:0;">
+      <table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+        <tr><td style="height:3px;width:140px;background-color:#c9a84c;border-radius:2px;font-size:0;line-height:0;">&nbsp;</td></tr>
       </table>
+    </td>
+  </tr>
+  <tr>
+    <td valign="top" style="vertical-align:top;">
+      ${body}
+    </td>
+  </tr>
+</table>`;
+  }
+
+  return `<table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-family:Arial,sans-serif;">
+  <tr>
+    <td colspan="4" style="padding-bottom:12px;font-size:0;line-height:0;">
+      <table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;width:100%;">
+        <tr><td style="height:3px;background-color:#c9a84c;border-radius:2px;font-size:0;line-height:0;">&nbsp;</td></tr>
+      </table>
+    </td>
+  </tr>
+  <tr>
+    <td valign="top" style="vertical-align:top;">
+      <img src="${opts.photoSrc}" alt="${displayName}" width="130" height="165" style="display:block;border-radius:6px;width:130px;height:165px;object-fit:cover;object-position:center top;" />
+    </td>
+    <td style="width:20px;">&nbsp;</td>
+    <td style="width:2px;background:linear-gradient(to bottom,#c9a84c,#1a2b5e);padding:0;">&nbsp;</td>
+    <td valign="top" style="padding-left:20px;vertical-align:top;">
+      ${body}
     </td>
   </tr>
 </table>`;
@@ -85,6 +122,7 @@ export function EmailSignatureGenerator() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [generated, setGenerated] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [withPhoto, setWithPhoto] = useState(true);
   const previewRef = useRef<HTMLDivElement | null>(null);
 
   const getPhotoSrc = useCallback(() => {
@@ -93,9 +131,20 @@ export function EmailSignatureGenerator() {
     return DEFAULT_PHOTO;
   }, [photoUrl, photoDataUrl]);
 
-  const signatureHTML = generated
-    ? buildSignatureHTML(getPhotoSrc(), fullName, jobTitle, phone, email, website)
-    : '';
+  const buildOpts = useCallback(
+    (): SignatureOpts => ({
+      withPhoto,
+      photoSrc: getPhotoSrc(),
+      name: fullName,
+      title: jobTitle,
+      phone,
+      email,
+      website,
+    }),
+    [withPhoto, getPhotoSrc, fullName, jobTitle, phone, email, website],
+  );
+
+  const signatureHTML = generated ? buildSignatureHTML(buildOpts()) : '';
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -144,7 +193,7 @@ export function EmailSignatureGenerator() {
   };
 
   const handleCopy = async () => {
-    const html = buildSignatureHTML(getPhotoSrc(), fullName, jobTitle, phone, email, website);
+    const html = buildSignatureHTML(buildOpts());
     try {
       if (navigator.clipboard && typeof window.ClipboardItem !== 'undefined') {
         const item = new ClipboardItem({
@@ -179,15 +228,42 @@ export function EmailSignatureGenerator() {
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Form */}
       <div className="flex flex-col gap-4">
-        <div className="flex items-center gap-2 text-eyebrow uppercase text-accent">
-          <span>Photo</span>
-          <span className="flex-1 h-px bg-border" />
+        {/* With-photo / no-photo toggle */}
+        <div className="flex items-center gap-2">
+          <span className="text-eyebrow uppercase text-muted">Style</span>
+          <div className="inline-flex bg-surface-2 rounded-btn overflow-hidden border border-border">
+            <button
+              type="button"
+              onClick={() => setWithPhoto(true)}
+              className={`px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                withPhoto ? 'bg-accent text-bg' : 'text-muted hover:text-text'
+              }`}
+            >
+              With photo
+            </button>
+            <button
+              type="button"
+              onClick={() => setWithPhoto(false)}
+              className={`px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                !withPhoto ? 'bg-accent text-bg' : 'text-muted hover:text-text'
+              }`}
+            >
+              Text only
+            </button>
+          </div>
         </div>
-        <label
-          className={`block border-2 border-dashed rounded-btn p-5 text-center cursor-pointer transition-colors ${
-            photoDataUrl ? 'border-accent/70' : 'border-border hover:border-accent/60 hover:bg-accent/5'
-          }`}
-        >
+
+        {withPhoto && (
+          <>
+            <div className="flex items-center gap-2 text-eyebrow uppercase text-accent">
+              <span>Photo</span>
+              <span className="flex-1 h-px bg-border" />
+            </div>
+            <label
+              className={`block border-2 border-dashed rounded-btn p-5 text-center cursor-pointer transition-colors ${
+                photoDataUrl ? 'border-accent/70' : 'border-border hover:border-accent/60 hover:bg-accent/5'
+              }`}
+            >
           <input
             type="file"
             accept="image/*"
@@ -232,6 +308,8 @@ export function EmailSignatureGenerator() {
             onChange={(e) => setPhotoUrl(e.target.value)}
           />
         </div>
+          </>
+        )}
 
         <div className="flex items-center gap-2 text-eyebrow uppercase text-accent pt-2">
           <span>Your info</span>
