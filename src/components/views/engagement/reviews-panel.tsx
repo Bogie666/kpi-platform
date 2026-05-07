@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useReviews } from '@/lib/hooks/use-reviews';
 import { Panel } from '@/components/primitives/panel';
 import { Skeleton } from '@/components/primitives/skeleton';
@@ -37,7 +37,15 @@ function relativeDate(dateStr: string): string {
 }
 
 function initialsColor(name: string): string {
-  const colors = ['var(--d-hvac_service)', 'var(--d-hvac_sales)', 'var(--d-plumbing)', 'var(--d-commercial)', 'var(--d-hvac_maintenance)', 'var(--d-electrical)', 'var(--d-etx)'];
+  const colors = [
+    'var(--d-hvac_service)',
+    'var(--d-hvac_sales)',
+    'var(--d-plumbing)',
+    'var(--d-commercial)',
+    'var(--d-hvac_maintenance)',
+    'var(--d-electrical)',
+    'var(--d-etx)',
+  ];
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
   return colors[Math.abs(hash) % colors.length];
@@ -45,34 +53,15 @@ function initialsColor(name: string): string {
 
 export function ReviewsPanel() {
   const { data, isLoading, error, refetch } = useReviews();
-  const [locationId, setLocationId] = useState<string>('all');
-  const [showAiInsights, setShowAiInsights] = useState(false);
-
-  const filteredRecent = useMemo(() => {
-    if (!data) return [];
-    return locationId === 'all' ? data.recent : data.recent.filter((r) => r.locationId === locationId);
-  }, [data, locationId]);
-
-  const filteredTrend = useMemo(() => {
-    if (!data) return [];
-    // The byLocation rollup gives us per-location, but trend was all-up.
-    // Best-effort: for "all", use data.trend; for a single location, we'd
-    // need recomputation server-side which the current API doesn't expose.
-    // Show data.trend regardless; the trend chart is "company-wide" until
-    // we add a location filter to the route.
-    return data.trend;
-  }, [data]);
+  const [showAi, setShowAi] = useState(false);
 
   if (isLoading) {
     return (
-      <div className="flex flex-col gap-6">
-        <Panel padding="cozy">
-          <Skeleton variant="chart" />
-        </Panel>
-      </div>
+      <Panel padding="cozy">
+        <Skeleton variant="chart" />
+      </Panel>
     );
   }
-
   if (error) {
     return (
       <Panel>
@@ -86,20 +75,16 @@ export function ReviewsPanel() {
       </Panel>
     );
   }
-
   if (!data) return null;
-
   if (data.total === 0) {
     return (
       <Panel padding="cozy">
         <div className="flex flex-col items-start gap-3 py-8 max-w-lg">
           <div className="text-panel">No reviews synced yet</div>
           <p className="text-[13px] text-muted leading-relaxed">
-            The Google Business Profile sync hasn&apos;t populated the cache yet, or there
-            are no reviews for the configured locations. Trigger a manual sync via{' '}
+            Trigger a manual sync via{' '}
             <code className="font-mono text-[12px]">POST /api/sync/run?source=google-reviews</code>{' '}
-            once the env vars (GOOGLE_REFRESH_TOKEN / GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET)
-            are set.
+            once GOOGLE_REFRESH_TOKEN / GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are set.
           </p>
           {data.lastSync.error && (
             <p className="text-[12px] text-down">Last sync error: {data.lastSync.error}</p>
@@ -109,12 +94,13 @@ export function ReviewsPanel() {
     );
   }
 
-  const totalDist = data.ratingDist[1] + data.ratingDist[2] + data.ratingDist[3] + data.ratingDist[4] + data.ratingDist[5];
-  const maxTrendCount = Math.max(...filteredTrend.map((t) => t.count), 1);
+  const totalDist =
+    data.ratingDist[1] + data.ratingDist[2] + data.ratingDist[3] + data.ratingDist[4] + data.ratingDist[5];
+  const maxTrendCount = Math.max(...data.trend.map((t) => t.count), 1);
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Hero — total + avg + label */}
+      {/* Hero — total + avg + label, with prominent Generate Insights CTA */}
       <Panel
         className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-8 lg:gap-12"
         padding="cozy"
@@ -123,7 +109,10 @@ export function ReviewsPanel() {
           <div className="flex flex-col gap-2">
             <span className="text-eyebrow uppercase text-muted">Average rating</span>
             <div className="flex items-end gap-3">
-              <div className="text-display font-mono tabular-nums" style={{ fontSize: 'clamp(56px, 7vw, 96px)' }}>
+              <div
+                className="text-display font-mono tabular-nums"
+                style={{ fontSize: 'clamp(56px, 7vw, 96px)' }}
+              >
                 {data.avgRating.toFixed(1)}
               </div>
               <div className="flex flex-col gap-1 pb-3">
@@ -139,18 +128,28 @@ export function ReviewsPanel() {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 text-[12px] text-muted">
-            <span className="px-2 py-0.5 rounded-pill bg-accent/15 text-accent text-[11px] uppercase tracking-[0.08em] font-medium">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="px-2.5 py-0.5 rounded-pill bg-accent/15 text-accent text-[11px] uppercase tracking-[0.08em] font-medium">
               {ratingLabel(data.avgRating)}
             </span>
+            <button
+              onClick={() => {
+                setShowAi(true);
+                requestAnimationFrame(() => {
+                  document.getElementById('ai-insights')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                });
+              }}
+              className="inline-flex items-center gap-2 text-[13px] font-semibold px-4 py-2 rounded-btn bg-accent text-bg border border-accent hover:opacity-90 transition-opacity"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                <path d="M12 2l1.5 4.5L18 8l-4.5 1.5L12 14l-1.5-4.5L6 8l4.5-1.5L12 2zm6 10l1 3 3 1-3 1-1 3-1-3-3-1 3-1 1-3zm-13 4l1 2 2 1-2 1-1 2-1-2-2-1 2-1 1-2z" />
+              </svg>
+              Generate AI insights
+            </button>
             {data.lastSync.at && (
-              <span className="font-mono tabular-nums">last sync {fmtAsOf(data.lastSync.at)}</span>
-            )}
-            {data.lastSync.status === 'skipped' && (
-              <span className="text-warning">sync skipped</span>
-            )}
-            {data.lastSync.error && (
-              <span className="text-down">⚠ {data.lastSync.error.slice(0, 80)}</span>
+              <span className="text-[11px] text-muted font-mono tabular-nums ml-auto">
+                synced {fmtAsOf(data.lastSync.at)}
+              </span>
             )}
           </div>
         </div>
@@ -161,7 +160,11 @@ export function ReviewsPanel() {
             const count = data.ratingDist[stars as 1 | 2 | 3 | 4 | 5];
             const pct = totalDist > 0 ? (count / totalDist) * 100 : 0;
             return (
-              <div key={stars} className="grid items-center gap-3" style={{ gridTemplateColumns: '50px 1fr 60px' }}>
+              <div
+                key={stars}
+                className="grid items-center gap-3"
+                style={{ gridTemplateColumns: '50px 1fr 60px' }}
+              >
                 <div className="flex items-center gap-1 text-[12px] font-mono tabular-nums text-muted">
                   <span>{stars}</span>
                   <span className="text-[10px]">{STAR(true)}</span>
@@ -181,28 +184,27 @@ export function ReviewsPanel() {
         </div>
       </Panel>
 
-      {/* Per-location + 12-month trend */}
+      {/* AI Insights — only renders when toggled */}
+      {showAi && (
+        <div id="ai-insights">
+          <Panel
+            eyebrow="AI Analysis"
+            title="What customers are saying"
+            right={
+              <Button size="sm" variant="ghost" onClick={() => setShowAi(false)}>
+                Hide
+              </Button>
+            }
+            padding="cozy"
+          >
+            <ReviewsAiPanel locationId="all" />
+          </Panel>
+        </div>
+      )}
+
+      {/* Per-location split + 12-month trend */}
       <div className="grid gap-6 grid-cols-1 lg:grid-cols-[1fr_1.4fr]">
-        <Panel
-          eyebrow="By location"
-          title="Per-location split"
-          right={
-            <div className="flex items-center gap-2">
-              <select
-                value={locationId}
-                onChange={(e) => setLocationId(e.target.value)}
-                className="text-[12px] bg-surface-2 border border-border rounded-btn px-2 py-1"
-              >
-                <option value="all">All locations</option>
-                {data.byLocation.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          }
-        >
+        <Panel eyebrow="By location" title="Per-location split">
           <div className="flex flex-col gap-4">
             {data.byLocation.map((l) => {
               const reportedHigher = l.reportedTotal != null && l.reportedTotal > l.count;
@@ -229,22 +231,29 @@ export function ReviewsPanel() {
         </Panel>
 
         <Panel eyebrow="Last 12 months" title="Reviews per month">
-          <div className="flex items-end gap-1.5 h-[160px]">
-            {filteredTrend.map((t) => {
+          <div className="flex items-end gap-2 h-[200px] pb-1">
+            {data.trend.map((t) => {
               const pct = (t.count / maxTrendCount) * 100;
               const [, mm] = t.month.split('-').map(Number);
               return (
-                <div key={t.month} className="flex flex-col items-center justify-end gap-1 flex-1 min-w-0 group">
-                  <div className="text-[10px] font-mono tabular-nums text-muted opacity-0 group-hover:opacity-100">
+                <div
+                  key={t.month}
+                  className="flex flex-col items-center justify-end gap-1.5 flex-1 min-w-0 group"
+                  title={`${MONTH_NAMES[mm - 1]}: ${t.count} reviews · ${t.avgRating.toFixed(1)}★`}
+                >
+                  <div className="text-[11px] font-mono tabular-nums text-text font-semibold">
                     {t.count}
                   </div>
                   <div
-                    className="w-full bg-accent rounded-t-[2px] transition-all"
-                    style={{ height: `${Math.max(pct, 2)}%`, opacity: 0.6 + (t.avgRating / 10) }}
-                    title={`${MONTH_NAMES[mm - 1]}: ${t.count} reviews · ${t.avgRating.toFixed(1)}★`}
+                    className="w-full bg-accent rounded-t-[3px] transition-all hover:opacity-100"
+                    style={{
+                      height: `${Math.max(pct, 4)}%`,
+                      minHeight: '4px',
+                      opacity: 0.55 + Math.max(0, t.avgRating - 3) * 0.15,
+                    }}
                   />
                   <div className="text-[10px] font-mono tabular-nums text-muted">
-                    {MONTH_NAMES[mm - 1]?.[0] ?? ''}
+                    {MONTH_NAMES[mm - 1] ?? ''}
                   </div>
                 </div>
               );
@@ -253,38 +262,13 @@ export function ReviewsPanel() {
         </Panel>
       </div>
 
-      {/* AI Insights (collapsible — costs an API call to generate) */}
-      <Panel
-        eyebrow="AI Analysis"
-        title="What customers are saying"
-        right={
-          !showAiInsights ? (
-            <Button size="sm" onClick={() => setShowAiInsights(true)}>
-              Generate insights
-            </Button>
-          ) : (
-            <Button size="sm" variant="ghost" onClick={() => setShowAiInsights(false)}>
-              Hide
-            </Button>
-          )
-        }
-      >
-        {!showAiInsights ? (
-          <p className="text-[13px] text-muted leading-relaxed">
-            Click <span className="text-text">Generate insights</span> to run Claude over your
-            reviews. It&apos;ll summarize common praise and complaints, surface technician mentions,
-            identify themes, and suggest actionable improvements. Re-runnable per location and
-            timeframe.
-          </p>
-        ) : (
-          <ReviewsAiPanel locationId={locationId} />
-        )}
-      </Panel>
-
       {/* Recent reviews */}
-      <Panel eyebrow="Latest" title={`Recent reviews${locationId !== 'all' ? ` · ${data.byLocation.find((l) => l.id === locationId)?.name ?? ''}` : ''}`}>
-        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
-          {filteredRecent.map((r) => (
+      <Panel eyebrow="Latest" title="Recent reviews">
+        <div
+          className="grid gap-3"
+          style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}
+        >
+          {data.recent.map((r) => (
             <article
               key={r.id}
               className="flex flex-col gap-2 p-4 rounded-panel border border-border bg-surface"
@@ -299,7 +283,9 @@ export function ReviewsPanel() {
                 </span>
                 <div className="flex flex-col flex-1 min-w-0">
                   <span className="text-[13px] font-medium truncate">{r.name}</span>
-                  <span className="text-[11px] text-muted">{relativeDate(r.date)} · {r.locationName}</span>
+                  <span className="text-[11px] text-muted">
+                    {relativeDate(r.date)} · {r.locationName}
+                  </span>
                 </div>
               </div>
               <div className="flex gap-0.5">
