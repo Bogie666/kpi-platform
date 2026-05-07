@@ -17,124 +17,72 @@ interface SignatureOpts {
   website: string;
 }
 
-function rowsForBody(opts: Pick<SignatureOpts, 'name' | 'title' | 'phone' | 'email' | 'website'>): {
-  titleRow: string;
-  phoneRow: string;
-  emailRow: string;
-  websiteRow: string;
-  websiteDisplay: string;
-} {
+const COMPANY_LINE = 'LEX - Air Conditioning, Heating, Plumbing &amp; Electrical';
+const TAGLINE = 'The Gold Standard of White Glove Service.';
+
+function escapeHTML(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/** Body table — name, title, company, P/E/W rows, tagline. Identical
+ *  between the with-photo and text-only variants. */
+function buildBodyHTML(opts: Pick<SignatureOpts, 'name' | 'title' | 'phone' | 'email' | 'website'>): string {
+  const displayName = escapeHTML(opts.name || 'Your Name');
+  const title = opts.title ? escapeHTML(opts.title) : '';
   const websiteDisplay = opts.website ? opts.website.replace(/^https?:\/\/(www\.)?/, '') : '';
-  const titleRow = opts.title
-    ? `\n        <tr>\n          <td style="padding-bottom:4px;">\n            <span style="font-family:Arial,sans-serif;font-size:11px;font-weight:600;color:#c9a84c;letter-spacing:2px;text-transform:uppercase;">${opts.title}</span>\n          </td>\n        </tr>`
+
+  const titleRow = title
+    ? `<tr><td style="font-family: Arial, sans-serif; font-size: 13px; color: #C8A851; font-weight: 600; padding-bottom: 8px; letter-spacing: 0.3px;">${title}</td></tr>`
     : '';
   const phoneRow = opts.phone
-    ? `\n        <tr>\n          <td style="padding-bottom:5px;">\n            <span style="color:#1a2b5e;font-size:10px;">&#9679;&nbsp;</span><a href="tel:${opts.phone.replace(/\D/g, '')}" style="font-family:Arial,sans-serif;font-size:13px;color:#3a4a62;text-decoration:none;">${opts.phone}</a>\n          </td>\n        </tr>`
+    ? `<tr><td style="font-family: Arial, sans-serif; font-size: 12px; color: #555555; padding-bottom: 4px;"><span style="color: #C8A851; font-weight: 700;">P</span>&nbsp;&nbsp;<a href="tel:${opts.phone.replace(/\D/g, '')}" style="color: #555555; text-decoration: none;">${escapeHTML(opts.phone)}</a></td></tr>`
     : '';
   const emailRow = opts.email
-    ? `\n        <tr>\n          <td style="padding-bottom:5px;">\n            <span style="color:#1a2b5e;font-size:10px;">&#9679;&nbsp;</span><a href="mailto:${opts.email}" style="font-family:Arial,sans-serif;font-size:13px;color:#3a4a62;text-decoration:none;">${opts.email}</a>\n          </td>\n        </tr>`
+    ? `<tr><td style="font-family: Arial, sans-serif; font-size: 12px; color: #555555; padding-bottom: 4px;"><span style="color: #C8A851; font-weight: 700;">E</span>&nbsp;&nbsp;<a href="mailto:${escapeHTML(opts.email)}" style="color: #555555; text-decoration: none;">${escapeHTML(opts.email)}</a></td></tr>`
     : '';
   const websiteRow = opts.website
-    ? `\n        <tr>\n          <td>\n            <span style="color:#1a2b5e;font-size:10px;">&#9679;&nbsp;</span><a href="${opts.website}" target="_blank" style="font-family:Arial,sans-serif;font-size:13px;color:#3a4a62;text-decoration:none;">${websiteDisplay}</a>\n          </td>\n        </tr>`
+    ? `<tr><td style="font-family: Arial, sans-serif; font-size: 12px; color: #555555; padding-bottom: 10px;"><span style="color: #C8A851; font-weight: 700;">W</span>&nbsp;&nbsp;<a href="${escapeHTML(opts.website)}" style="color: #555555; text-decoration: none;">${escapeHTML(websiteDisplay)}</a></td></tr>`
     : '';
-  return { titleRow, phoneRow, emailRow, websiteRow, websiteDisplay };
+
+  return `<table cellpadding="0" cellspacing="0" border="0">
+        <tr><td style="font-family: 'Montserrat', Arial, sans-serif; font-size: 18px; font-weight: 700; color: #003366; padding-bottom: 2px;">${displayName}</td></tr>
+        ${titleRow}
+        <tr><td style="font-family: Arial, sans-serif; font-size: 13px; color: #003366; font-weight: 700; padding-bottom: 10px;">${COMPANY_LINE}</td></tr>
+        ${phoneRow}
+        ${emailRow}
+        ${websiteRow}
+        <tr><td style="font-family: Arial, sans-serif; font-size: 11px; color: #888888; font-style: italic; border-top: 1px solid #e5e7eb; padding-top: 8px;">${TAGLINE}</td></tr>
+      </table>`;
 }
 
 function buildSignatureHTML(opts: SignatureOpts): string {
-  const displayName = opts.name || 'Your Name';
-  const { titleRow, phoneRow, emailRow, websiteRow } = rowsForBody(opts);
-
-  // Body cells (name + LEX logo + contact rows) — shared between the
-  // photo and no-photo variants below.
-  const body = `<table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
-        <tr>
-          <td style="padding-bottom:${opts.title ? '2px' : '8px'};">
-            <span style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:22px;font-weight:700;color:#0d1a2e;letter-spacing:0.5px;line-height:1;">${displayName}</span>
-          </td>
-        </tr>${titleRow}
-        <tr>
-          <td style="padding-bottom:16px;">
-            <table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
-              <tr>
-                <td valign="middle">
-                  <img src="https://www.lexairconditioning.com/wp-content/uploads/2024/01/cropped-lex-logo@2x.png" alt="LEX Air Conditioning" height="38" style="display:block;height:38px;width:auto;" />
-                </td>
-                <td valign="middle" style="padding-left:10px;border-left:1px solid #d0d8e8;">
-                  <span style="font-family:Arial,sans-serif;font-size:10px;color:#8a9ab5;letter-spacing:1px;text-transform:uppercase;white-space:nowrap;">The Gold Standard of White Glove Service</span>
-                </td>
-              </tr>
-            </table>
-          </td>
-        </tr>${phoneRow}${emailRow}${websiteRow}
-      </table>`;
+  const body = buildBodyHTML(opts);
 
   if (!opts.withPhoto) {
-    // Two-column variant: name + title + LEX badge on the left, contact
-    // info on the right, separated by the same gold→navy gradient bar
-    // the with-photo version uses. Reads as a balanced business card
-    // instead of a thin stack of bullet rows.
-    const { titleRow: titleLeftRow, phoneRow, emailRow, websiteRow } = rowsForBody(opts);
-
-    const leftCol = `<table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
-        <tr>
-          <td style="padding-bottom:${opts.title ? '2px' : '8px'};">
-            <span style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:24px;font-weight:700;color:#0d1a2e;letter-spacing:0.5px;line-height:1;white-space:nowrap;">${displayName}</span>
-          </td>
-        </tr>${titleLeftRow}
-        <tr>
-          <td style="padding-top:10px;">
-            <table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
-              <tr>
-                <td valign="middle">
-                  <img src="https://www.lexairconditioning.com/wp-content/uploads/2024/01/cropped-lex-logo@2x.png" alt="LEX Air Conditioning" height="38" style="display:block;height:38px;width:auto;" />
-                </td>
-                <td valign="middle" style="padding-left:10px;border-left:1px solid #d0d8e8;">
-                  <span style="font-family:Arial,sans-serif;font-size:10px;color:#8a9ab5;letter-spacing:1px;text-transform:uppercase;white-space:nowrap;">The Gold Standard of White Glove Service</span>
-                </td>
-              </tr>
-            </table>
-          </td>
-        </tr>
-      </table>`;
-
-    const rightCol = `<table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">${phoneRow}${emailRow}${websiteRow}
-      </table>`;
-
-    return `<table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-family:Arial,sans-serif;">
+    // Same right-column body, no photo cell. Keep a thin gold accent
+    // line on the left so the gold-letter P/E/W markers feel grounded.
+    return `<table cellpadding="0" cellspacing="0" border="0" style="font-family: Arial, Helvetica, sans-serif; color: #333333; border-collapse: collapse;">
   <tr>
-    <td colspan="3" style="padding-bottom:14px;font-size:0;line-height:0;">
-      <table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
-        <tr><td style="height:3px;width:280px;background-color:#c9a84c;border-radius:2px;font-size:0;line-height:0;">&nbsp;</td></tr>
-      </table>
-    </td>
-  </tr>
-  <tr>
-    <td valign="top" style="vertical-align:top;padding-right:24px;">
-      ${leftCol}
-    </td>
-    <td style="width:2px;background:linear-gradient(to bottom,#c9a84c,#1a2b5e);padding:0;">&nbsp;</td>
-    <td valign="top" style="vertical-align:middle;padding-left:24px;">
-      ${rightCol}
+    <td style="padding: 0 20px 0 0; border-right: 3px solid #C8A851;">&nbsp;</td>
+    <td style="padding: 0 0 0 20px; vertical-align: top; line-height: 1.4;">
+      ${body}
     </td>
   </tr>
 </table>`;
   }
 
-  return `<table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-family:Arial,sans-serif;">
+  const photoSrc = escapeHTML(opts.photoSrc);
+  const altName = escapeHTML(opts.name || 'Photo');
+  return `<table cellpadding="0" cellspacing="0" border="0" style="font-family: Arial, Helvetica, sans-serif; color: #333333; border-collapse: collapse;">
   <tr>
-    <td colspan="4" style="padding-bottom:12px;font-size:0;line-height:0;">
-      <table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;width:100%;">
-        <tr><td style="height:3px;background-color:#c9a84c;border-radius:2px;font-size:0;line-height:0;">&nbsp;</td></tr>
-      </table>
+    <td style="padding: 0 20px 0 0; vertical-align: top; border-right: 3px solid #C8A851;">
+      <img src="${photoSrc}" alt="${altName}" width="100" height="100" style="display: block; border-radius: 50%; border: 0;">
     </td>
-  </tr>
-  <tr>
-    <td valign="top" style="vertical-align:top;">
-      <img src="${opts.photoSrc}" alt="${displayName}" width="130" height="165" style="display:block;border-radius:6px;width:130px;height:165px;object-fit:cover;object-position:center top;" />
-    </td>
-    <td style="width:20px;">&nbsp;</td>
-    <td style="width:2px;background:linear-gradient(to bottom,#c9a84c,#1a2b5e);padding:0;">&nbsp;</td>
-    <td valign="top" style="padding-left:20px;vertical-align:top;">
+    <td style="padding: 0 0 0 20px; vertical-align: top; line-height: 1.4;">
       ${body}
     </td>
   </tr>
