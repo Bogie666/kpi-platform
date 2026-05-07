@@ -69,20 +69,52 @@ function buildSignatureHTML(opts: SignatureOpts): string {
       </table>`;
 
   if (!opts.withPhoto) {
-    // Compact variant — no photo cell, just the gold accent bar above
-    // the name + logo + contact rows. Same look-and-feel without the
-    // headshot column.
+    // Two-column variant: name + title + LEX badge on the left, contact
+    // info on the right, separated by the same gold→navy gradient bar
+    // the with-photo version uses. Reads as a balanced business card
+    // instead of a thin stack of bullet rows.
+    const { titleRow: titleLeftRow, phoneRow, emailRow, websiteRow } = rowsForBody(opts);
+
+    const leftCol = `<table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+        <tr>
+          <td style="padding-bottom:${opts.title ? '2px' : '8px'};">
+            <span style="font-family:'Barlow Condensed',Arial,sans-serif;font-size:24px;font-weight:700;color:#0d1a2e;letter-spacing:0.5px;line-height:1;white-space:nowrap;">${displayName}</span>
+          </td>
+        </tr>${titleLeftRow}
+        <tr>
+          <td style="padding-top:10px;">
+            <table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+              <tr>
+                <td valign="middle">
+                  <img src="https://www.lexairconditioning.com/wp-content/uploads/2024/01/cropped-lex-logo@2x.png" alt="LEX Air Conditioning" height="38" style="display:block;height:38px;width:auto;" />
+                </td>
+                <td valign="middle" style="padding-left:10px;border-left:1px solid #d0d8e8;">
+                  <span style="font-family:Arial,sans-serif;font-size:10px;color:#8a9ab5;letter-spacing:1px;text-transform:uppercase;white-space:nowrap;">The Gold Standard of White Glove Service</span>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>`;
+
+    const rightCol = `<table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">${phoneRow}${emailRow}${websiteRow}
+      </table>`;
+
     return `<table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-family:Arial,sans-serif;">
   <tr>
-    <td style="padding-bottom:12px;font-size:0;line-height:0;">
+    <td colspan="3" style="padding-bottom:14px;font-size:0;line-height:0;">
       <table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
-        <tr><td style="height:3px;width:140px;background-color:#c9a84c;border-radius:2px;font-size:0;line-height:0;">&nbsp;</td></tr>
+        <tr><td style="height:3px;width:280px;background-color:#c9a84c;border-radius:2px;font-size:0;line-height:0;">&nbsp;</td></tr>
       </table>
     </td>
   </tr>
   <tr>
-    <td valign="top" style="vertical-align:top;">
-      ${body}
+    <td valign="top" style="vertical-align:top;padding-right:24px;">
+      ${leftCol}
+    </td>
+    <td style="width:2px;background:linear-gradient(to bottom,#c9a84c,#1a2b5e);padding:0;">&nbsp;</td>
+    <td valign="top" style="vertical-align:middle;padding-left:24px;">
+      ${rightCol}
     </td>
   </tr>
 </table>`;
@@ -399,7 +431,7 @@ export function EmailSignatureGenerator() {
             <span className="h-2.5 w-2.5 rounded-full bg-[#9ca3af]" />
             <span className="h-2.5 w-2.5 rounded-full bg-[#9ca3af]" />
             <span className="h-2.5 w-2.5 rounded-full bg-[#9ca3af]" />
-            <span className="text-[11px] text-[#6b7280] ml-1">New Message — Gmail</span>
+            <span className="text-[11px] text-[#6b7280] ml-1">New Message — Outlook</span>
           </div>
           <div className="bg-white px-5 py-2 border-b border-[#e5e7eb]">
             <div className="text-[12px] text-[#9ca3af] py-1 border-b border-[#f3f4f6]">To</div>
@@ -420,13 +452,13 @@ export function EmailSignatureGenerator() {
         </div>
 
         <div className="rounded-card border border-border bg-surface-2/40 p-4">
-          <h4 className="text-eyebrow uppercase text-accent mb-3">How to install in Gmail</h4>
+          <h4 className="text-eyebrow uppercase text-accent mb-3">How to install in Outlook</h4>
           <ol className="flex flex-col gap-2 text-[13px] text-muted">
             {[
               'Click Generate Signature, then Copy Signature above.',
-              'Open Gmail → Settings ⚙ → See all settings → Signature.',
-              'Click Create new, name it, then paste with Ctrl+V / ⌘V.',
-              'Set as default and click Save Changes.',
+              'In Outlook, open File → Options → Mail → Signatures.',
+              'Click New, name it, then paste with Ctrl+V into the editor.',
+              'Set as default for new messages + replies, click OK to save.',
             ].map((step, i) => (
               <li key={i} className="flex items-start gap-2.5">
                 <span className="h-5 w-5 rounded-full bg-surface-2 border border-border text-accent text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">
@@ -436,6 +468,10 @@ export function EmailSignatureGenerator() {
               </li>
             ))}
           </ol>
+          <p className="text-[11px] text-muted/80 mt-3 leading-relaxed">
+            New Outlook / Outlook on the web: Settings ⚙ → <em>Mail → Compose and reply →
+            Email signatures</em>. Add new, paste, set as default, save.
+          </p>
         </div>
       </div>
     </div>
