@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { Camera, Check, Clipboard, Sparkles } from 'lucide-react';
+import { useAdminSecret } from '@/lib/hooks/use-admin-secret';
 
 const DEFAULT_PHOTO =
   'https://www.lexairconditioning.com/wp-content/uploads/2026/02/IMG_20260218_214609.png';
@@ -28,15 +29,23 @@ function escapeHTML(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
-/** Body table — name, title, company, P/E/W rows, tagline. Identical
- *  between the with-photo and text-only variants. */
-function buildBodyHTML(opts: Pick<SignatureOpts, 'name' | 'title' | 'phone' | 'email' | 'website'>): string {
+/** Body table — name, title, optional company line, P/E/W rows, tagline.
+ *  When the photo variant is used, the body includes the company name
+ *  line. When the no-photo variant is used, the LEX logo on the left
+ *  conveys the company so the line is omitted to avoid redundancy. */
+function buildBodyHTML(
+  opts: Pick<SignatureOpts, 'name' | 'title' | 'phone' | 'email' | 'website'>,
+  options: { includeCompanyLine: boolean },
+): string {
   const displayName = escapeHTML(opts.name || 'Your Name');
   const title = opts.title ? escapeHTML(opts.title) : '';
   const websiteDisplay = opts.website ? opts.website.replace(/^https?:\/\/(www\.)?/, '') : '';
 
   const titleRow = title
     ? `<tr><td style="font-family: Arial, sans-serif; font-size: 13px; color: #C8A851; font-weight: 600; padding-bottom: 8px; letter-spacing: 0.3px;">${title}</td></tr>`
+    : '';
+  const companyRow = options.includeCompanyLine
+    ? `<tr><td style="font-family: Arial, sans-serif; font-size: 13px; color: #003366; font-weight: 700; padding-bottom: 10px;">${COMPANY_LINE}</td></tr>`
     : '';
   const phoneRow = opts.phone
     ? `<tr><td style="font-family: Arial, sans-serif; font-size: 12px; color: #555555; padding-bottom: 4px;"><span style="color: #C8A851; font-weight: 700;">P</span>&nbsp;&nbsp;<a href="tel:${opts.phone.replace(/\D/g, '')}" style="color: #555555; text-decoration: none;">${escapeHTML(opts.phone)}</a></td></tr>`
@@ -51,7 +60,7 @@ function buildBodyHTML(opts: Pick<SignatureOpts, 'name' | 'title' | 'phone' | 'e
   return `<table cellpadding="0" cellspacing="0" border="0">
         <tr><td style="font-family: 'Montserrat', Arial, sans-serif; font-size: 18px; font-weight: 700; color: #003366; padding-bottom: 2px;">${displayName}</td></tr>
         ${titleRow}
-        <tr><td style="font-family: Arial, sans-serif; font-size: 13px; color: #003366; font-weight: 700; padding-bottom: 10px;">${COMPANY_LINE}</td></tr>
+        ${companyRow}
         ${phoneRow}
         ${emailRow}
         ${websiteRow}
@@ -60,14 +69,16 @@ function buildBodyHTML(opts: Pick<SignatureOpts, 'name' | 'title' | 'phone' | 'e
 }
 
 function buildSignatureHTML(opts: SignatureOpts): string {
-  const body = buildBodyHTML(opts);
-
   if (!opts.withPhoto) {
-    // Same right-column body, no photo cell. Keep a thin gold accent
-    // line on the left so the gold-letter P/E/W markers feel grounded.
+    // No personal photo — show the LEX logo in the left cell instead.
+    // The logo conveys the company so we omit the redundant company-name
+    // line from the body.
+    const body = buildBodyHTML(opts, { includeCompanyLine: false });
     return `<table cellpadding="0" cellspacing="0" border="0" style="font-family: Arial, Helvetica, sans-serif; color: #333333; border-collapse: collapse;">
   <tr>
-    <td style="padding: 0 20px 0 0; border-right: 3px solid #C8A851;">&nbsp;</td>
+    <td style="padding: 0 20px 0 0; vertical-align: middle; border-right: 3px solid #C8A851;">
+      <img src="https://www.lexairconditioning.com/wp-content/uploads/2024/01/lex-logo@2x.png" alt="LEX Air Conditioning, Heating, Plumbing &amp; Electrical" width="160" height="84" style="display: block; border: 0;">
+    </td>
     <td style="padding: 0 0 0 20px; vertical-align: top; line-height: 1.4;">
       ${body}
     </td>
@@ -75,6 +86,7 @@ function buildSignatureHTML(opts: SignatureOpts): string {
 </table>`;
   }
 
+  const body = buildBodyHTML(opts, { includeCompanyLine: true });
   const photoSrc = escapeHTML(opts.photoSrc);
   const altName = escapeHTML(opts.name || 'Photo');
   return `<table cellpadding="0" cellspacing="0" border="0" style="font-family: Arial, Helvetica, sans-serif; color: #333333; border-collapse: collapse;">
@@ -90,6 +102,7 @@ function buildSignatureHTML(opts: SignatureOpts): string {
 }
 
 export function EmailSignatureGenerator() {
+  const { authHeaders } = useAdminSecret();
   const [fullName, setFullName] = useState('');
   const [jobTitle, setJobTitle] = useState('');
   const [phone, setPhone] = useState('');
@@ -149,19 +162,24 @@ export function EmailSignatureGenerator() {
 
     setUploading(true);
     try {
-      // Reuse the existing employee-photo blob endpoint — it's already
-      // wired to Vercel Blob and accepts arbitrary image uploads under
-      // an employee name; here we just pass the file's basename.
+      // Dedicated signature-photo route — uploads to the same Vercel
+      // Blob bucket as technician headshots, but doesn't write any
+      // employees-table row. Auth-gated via the shared admin secret.
       const form = new FormData();
       form.append('file', file);
-      form.append('employeeName', `signature-${file.name}`);
-      const res = await fetch('/api/admin/employee-photo', {
+      const res = await fetch('/api/admin/signature-photo', {
         method: 'POST',
         body: form,
+        headers: authHeaders(),
       });
       if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { error?: string; detail?: string };
-        throw new Error(j.detail ?? j.error ?? `${res.status}`);
+        const j = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          detail?: string;
+          hint?: string;
+        };
+        const detail = j.detail ?? j.error ?? `${res.status}`;
+        throw new Error(j.hint ? `${detail} — ${j.hint}` : detail);
       }
       const json = (await res.json()) as { url?: string };
       if (json.url) setPhotoUrl(json.url);
