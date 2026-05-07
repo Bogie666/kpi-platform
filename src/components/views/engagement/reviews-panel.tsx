@@ -231,27 +231,31 @@ export function ReviewsPanel() {
         </Panel>
 
         <Panel eyebrow="Last 12 months" title="Reviews per month">
-          <div className="flex items-end gap-2 h-[200px] pb-1">
+          <div className="flex items-stretch gap-2 h-[220px] pb-1">
             {data.trend.map((t) => {
-              const pct = (t.count / maxTrendCount) * 100;
+              const pct = t.count > 0 ? Math.max((t.count / maxTrendCount) * 100, 6) : 0;
               const [, mm] = t.month.split('-').map(Number);
               return (
                 <div
                   key={t.month}
-                  className="flex flex-col items-center justify-end gap-1.5 flex-1 min-w-0 group"
+                  className="flex flex-col items-center gap-1.5 flex-1 min-w-0"
                   title={`${MONTH_NAMES[mm - 1]}: ${t.count} reviews · ${t.avgRating.toFixed(1)}★`}
                 >
                   <div className="text-[11px] font-mono tabular-nums text-text font-semibold">
                     {t.count}
                   </div>
-                  <div
-                    className="w-full bg-accent rounded-t-[3px] transition-all hover:opacity-100"
-                    style={{
-                      height: `${Math.max(pct, 4)}%`,
-                      minHeight: '4px',
-                      opacity: 0.55 + Math.max(0, t.avgRating - 3) * 0.15,
-                    }}
-                  />
+                  {/* Spacer column — bar sits inside, height % is relative
+                      to this flex-1 area (not the parent flex row) so the
+                      bars scale visibly instead of collapsing to text height. */}
+                  <div className="flex-1 w-full flex items-end">
+                    <div
+                      className="w-full bg-accent rounded-t-[3px] transition-all"
+                      style={{
+                        height: `${pct}%`,
+                        opacity: 0.55 + Math.max(0, t.avgRating - 3) * 0.15,
+                      }}
+                    />
+                  </div>
                   <div className="text-[10px] font-mono tabular-nums text-muted">
                     {MONTH_NAMES[mm - 1] ?? ''}
                   </div>
