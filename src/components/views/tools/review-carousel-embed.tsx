@@ -274,7 +274,7 @@ export function ReviewCarouselEmbed() {
             title="Review carousel preview"
             className="w-full border-0"
             style={{ height: 360 }}
-            sandbox="allow-scripts"
+            sandbox="allow-scripts allow-same-origin"
           />
         </div>
       </div>

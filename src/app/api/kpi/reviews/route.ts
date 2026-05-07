@@ -15,6 +15,19 @@ import { googleReviews, googleReviewsSyncStatus } from '@/db/schema';
 
 export const dynamic = 'force-dynamic';
 
+// CORS — the carousel embeds run on external WordPress sites and
+// inside the Tools-page preview iframe (null origin). Both need to
+// fetch this endpoint cross-origin, so allow any origin.
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
+
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
+}
+
 export interface ReviewsResponse {
   total: number;
   avgRating: number;
@@ -153,7 +166,7 @@ export async function GET(_req: NextRequest) {
     },
   };
 
-  return NextResponse.json({ data: body });
+  return NextResponse.json({ data: body }, { headers: CORS_HEADERS });
 }
 
 function monthKeysBefore(asOf: Date, n: number): string[] {
