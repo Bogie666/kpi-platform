@@ -7,6 +7,7 @@ import { LeaderboardScene } from './scenes/leaderboard-scene';
 import { CallCenterScene } from './scenes/call-center-scene';
 import { MembershipsScene } from './scenes/memberships-scene';
 import { AppointmentsScene } from './scenes/appointments-scene';
+import { ReviewsScene } from './scenes/reviews-scene';
 
 interface SceneEntry {
   id: string;
@@ -30,6 +31,7 @@ const PLAYLIST: SceneEntry[] = [
   { id: 'callcenter', durationSec: 22, render: () => <CallCenterScene /> },
   { id: 'memberships', durationSec: 22, render: () => <MembershipsScene /> },
   { id: 'appointments', durationSec: 22, render: () => <AppointmentsScene /> },
+  { id: 'reviews', durationSec: 25, render: () => <ReviewsScene /> },
 ];
 
 export function TvRotator() {
