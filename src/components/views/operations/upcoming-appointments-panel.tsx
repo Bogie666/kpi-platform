@@ -241,13 +241,16 @@ export function UpcomingAppointmentsPanel({ data }: UpcomingAppointmentsPanelPro
             Nothing scheduled in the next week.
           </div>
         )}
-        <div className="flex flex-col gap-5">
+        <div className="flex flex-col">
           {data.groups.map((g) => {
             const color = g.departmentCode
               ? `var(--d-${g.departmentCode})`
               : 'var(--muted)';
             return (
-              <div key={g.departmentCode ?? g.departmentName ?? 'u'} className="flex flex-col gap-2">
+              <div
+                key={g.departmentCode ?? g.departmentName ?? 'u'}
+                className="flex flex-col gap-2 py-4 first:pt-0 last:pb-0 [&:not(:first-child)]:border-t [&:not(:first-child)]:border-border/40"
+              >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span
