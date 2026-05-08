@@ -177,11 +177,14 @@ export function UpcomingAppointmentsPanel({ data }: UpcomingAppointmentsPanelPro
                             {orderedDepts.length} dept{orderedDepts.length === 1 ? '' : 's'}
                           </span>
                         </summary>
-                        <div className="mt-1.5 flex flex-col gap-2 pl-3 border-l border-border/60">
+                        <div className="mt-1.5 flex flex-col pl-3 border-l border-border/60">
                           {orderedDepts.map((bucket) => {
                             const color = bucket.code ? `var(--d-${bucket.code})` : 'var(--muted)';
                             return (
-                              <div key={bucket.name} className="flex flex-col gap-0.5">
+                              <div
+                                key={bucket.name}
+                                className="flex flex-col gap-0.5 py-2 first:pt-0 last:pb-0 [&:not(:first-child)]:border-t [&:not(:first-child)]:border-border/40"
+                              >
                                 <div className="flex items-center justify-between text-[11px]">
                                   <span className="flex items-center gap-1.5">
                                     <span
