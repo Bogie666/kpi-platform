@@ -49,6 +49,15 @@ export interface UpcomingAppointmentsResponse {
       count: number;
     }>;
     topJobTypes: Array<{ name: string; count: number }>;
+    /** Per-business-unit breakdown for the expansion view, so LEX
+     *  Maintenance and LYONS Maintenance show as distinct rows even
+     *  though they share the `hvac_maintenance` dept code. */
+    byBu: Array<{
+      departmentCode: string | null;
+      name: string;
+      total: number;
+      jobTypes: Array<{ name: string; count: number }>;
+    }>;
   }>;
   /** Top job types across all depts. */
   topJobTypes: Array<{ name: string; count: number }>;
@@ -172,11 +181,19 @@ export async function GET() {
     byType: Map<string, number>;
   };
   const byDept = new Map<string, DeptAgg>();
-  // Per-day: total count, count by dept, count by job type.
+  // Per-day: total count, count by dept, count by job type, and a
+  // finer-grained per-BU map used by the expansion view.
+  type BuDaily = {
+    departmentCode: string | null;
+    name: string;
+    total: number;
+    types: Map<string, number>;
+  };
   type DailyBreakdown = {
     total: number;
     depts: Map<string, { code: string | null; name: string; count: number }>;
     types: Map<string, number>;
+    bus: Map<string, BuDaily>;
   };
   const perDay = new Map<string, DailyBreakdown>();
   const typeTotals = new Map<string, number>();
@@ -189,6 +206,7 @@ export async function GET() {
     const bu = job.businessUnitId ? buToDept.get(job.businessUnitId) : null;
     const deptKey = bu?.code ?? '__uncategorized__';
     const deptName = bu?.name ?? 'Uncategorized';
+    const buKey = job.businessUnitId != null ? `bu:${job.businessUnitId}` : '__uncategorized__';
     const typeName = job.jobTypeId
       ? typeNames.get(job.jobTypeId) ?? `type#${job.jobTypeId}`
       : 'Unknown type';
@@ -215,6 +233,7 @@ export async function GET() {
       total: 0,
       depts: new Map(),
       types: new Map(),
+      bus: new Map(),
     };
     daily.total += 1;
     const dailyDept = daily.depts.get(deptKey) ?? {
@@ -225,6 +244,15 @@ export async function GET() {
     dailyDept.count += 1;
     daily.depts.set(deptKey, dailyDept);
     daily.types.set(typeName, (daily.types.get(typeName) ?? 0) + 1);
+    const dailyBu = daily.bus.get(buKey) ?? {
+      departmentCode: bu?.code ?? null,
+      name: deptName,
+      total: 0,
+      types: new Map(),
+    };
+    dailyBu.total += 1;
+    dailyBu.types.set(typeName, (dailyBu.types.get(typeName) ?? 0) + 1);
+    daily.bus.set(buKey, dailyBu);
     perDay.set(day, daily);
 
     typeTotals.set(typeName, (typeTotals.get(typeName) ?? 0) + 1);
@@ -236,7 +264,7 @@ export async function GET() {
   const byDayArr = Array.from({ length: 7 }, (_, i) => {
     const d = shiftDate(today, i);
     const daily = perDay.get(d);
-    if (!daily) return { date: d, count: 0, depts: [], topJobTypes: [] };
+    if (!daily) return { date: d, count: 0, depts: [], topJobTypes: [], byBu: [] };
     return {
       date: d,
       count: daily.total,
@@ -244,6 +272,16 @@ export async function GET() {
       topJobTypes: Array.from(daily.types.entries())
         .map(([name, count]) => ({ name, count }))
         .sort((a, b) => b.count - a.count),
+      byBu: Array.from(daily.bus.values())
+        .map((b) => ({
+          departmentCode: b.departmentCode,
+          name: b.name,
+          total: b.total,
+          jobTypes: Array.from(b.types.entries())
+            .map(([name, count]) => ({ name, count }))
+            .sort((a, b) => b.count - a.count),
+        }))
+        .sort((a, b) => b.total - a.total),
     };
   });
 
