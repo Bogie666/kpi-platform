@@ -1,17 +1,28 @@
 /**
- * Business-local date helpers. The dashboard is for a Texas company
- * (Service Star Brands / Lexington), so "today" means today in
- * America/Chicago — not UTC. Using `toISOString().slice(0,10)` rolls
- * the date over at 6/7pm local time, which would mark "tomorrow" as
+ * Business-local date helpers. "Today" means today in the configured
+ * business timezone, not UTC — otherwise `toISOString().slice(0,10)`
+ * would roll the date over at 6/7pm local time, marking "tomorrow" as
  * "today" on the appointments page after dinner.
+ *
+ * The timezone is sourced from `company_config.timezone` (set by the
+ * setup wizard). A literal fallback is kept so this module still works
+ * before setup runs.
  */
+import { getConfig } from '@/lib/config-service';
 
-export const BUSINESS_TZ = 'America/Chicago';
+export const DEFAULT_BUSINESS_TZ = 'America/Chicago';
+
+/** Read the configured business timezone, with fallback. */
+export async function getBusinessTz(): Promise<string> {
+  const tz = await getConfig('timezone');
+  return tz && tz.trim() ? tz : DEFAULT_BUSINESS_TZ;
+}
 
 /** Today (YYYY-MM-DD) in the business timezone. */
-export function localTodayISO(now: Date = new Date()): string {
+export async function localTodayISO(now: Date = new Date()): Promise<string> {
+  const tz = await getBusinessTz();
   const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: BUSINESS_TZ,
+    timeZone: tz,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',

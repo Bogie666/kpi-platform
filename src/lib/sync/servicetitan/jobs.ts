@@ -31,6 +31,7 @@ import { and, eq, gte, lte, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
 import { businessUnits, financialDaily } from '@/db/schema';
 import { collectResource } from './raw-client';
+import { loadBuToDeptCodeMap } from './bu-map';
 import {
   startSyncRun,
   finishSyncRunSuccess,
@@ -295,14 +296,6 @@ async function loadJobTypeSettings(): Promise<Map<number, JobTypeSettings>> {
   return m;
 }
 
-async function loadBuToDeptMap(): Promise<Map<number, string | null>> {
-  const database = db();
-  const rows = await database
-    .select({ id: businessUnits.id, departmentCode: businessUnits.departmentCode })
-    .from(businessUnits);
-  return new Map(rows.map((r) => [r.id, r.departmentCode]));
-}
-
 async function loadBuNameMap(): Promise<Map<number, string>> {
   const database = db();
   const rows = await database
@@ -355,7 +348,7 @@ export async function syncJobs(
 
   try {
     const [buToDept, buNames, jobTypeMap, soldMaps] = await Promise.all([
-      loadBuToDeptMap(),
+      loadBuToDeptCodeMap(),
       loadBuNameMap(),
       loadJobTypeSettings(),
       loadSoldEstimateSubtotals(window),

@@ -70,8 +70,8 @@ async function runStReport(
   reportId: string,
   parameters: Array<{ name: string; value: unknown }>,
 ): Promise<StReportDataPage> {
-  const cfg = readStConfig();
-  const token = await getAccessToken();
+  const cfg = await readStConfig();
+  const token = await getAccessToken(cfg);
   const url = `${cfg.apiBase}/reporting/v2/tenant/${cfg.tenantId}/report-category/${categoryId}/reports/${reportId}/data?pageSize=5000`;
 
   // Reports API is rate-limited separately (5/min/report). Simple one-shot

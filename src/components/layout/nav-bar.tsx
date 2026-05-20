@@ -7,6 +7,7 @@ import { LiveDot } from '@/components/primitives/live-dot';
 import { cn } from '@/lib/cn';
 import type { Tab, CompareMode } from '@/lib/state/url-params';
 import { COMPARE_SUPPORTED } from '@/lib/state/url-params';
+import { useCompanyConfig } from '@/lib/hooks/use-company-config';
 
 export interface NavBarProps {
   activeTab: Tab;
@@ -17,9 +18,13 @@ export interface NavBarProps {
 
 export function NavBar({ activeTab, onTabChange, compareMode, onCompareChange }: NavBarProps) {
   const qc = useQueryClient();
+  const { data: cfg } = useCompanyConfig();
   const supportsCompare = COMPARE_SUPPORTED[activeTab];
   const compareOn = compareMode !== 'none';
   const compareYear = compareMode === 'ly2' ? 'ly2' : 'ly';
+  // Branding falls back to a neutral platform label so a freshly-deployed
+  // instance (where the wizard hasn't run yet) still renders coherently.
+  const companyName = cfg?.config.company_name?.trim() || 'KPI Platform';
 
   return (
     <header
@@ -43,8 +48,8 @@ export function NavBar({ activeTab, onTabChange, compareMode, onCompareChange }:
             aria-hidden="true"
           />
           <div className="hidden md:flex flex-col leading-tight">
-            <span className="text-[13px] font-semibold tracking-tight">Lex KPI</span>
-            <span className="text-[11px] text-muted">Service Star Brands</span>
+            <span className="text-[13px] font-semibold tracking-tight">{companyName}</span>
+            <span className="text-[11px] text-muted">KPI dashboard</span>
           </div>
         </div>
 

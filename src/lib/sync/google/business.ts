@@ -1,10 +1,11 @@
 /**
  * Thin client over the legacy Google My Business v4 reviews endpoint.
- * Iterates the three monitored Lex locations (Plano / Tyler / Lyons),
- * paginates each fully, and returns the union plus per-location stats
- * (both fetched count and Google's reported total — they sometimes
- * disagree because of pagination quirks on Google's side).
+ * Iterates every active location from `google_locations` (populated by
+ * the setup wizard), paginates each fully, and returns the union plus
+ * per-location stats (both fetched count and Google's reported total —
+ * they sometimes disagree because of pagination quirks on Google's side).
  */
+import { getGoogleLocations } from '@/lib/config-service';
 import { getTokenManager } from './token-manager';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -29,14 +30,15 @@ interface Location {
   identifier: string;
 }
 
-const LOCATIONS: Location[] = [
-  // Lex (Dallas/Plano) — 901 Jupiter Rd
-  { accountId: '102262219515631457064', locationId: '2211062401809147654', title: 'Lex Air Conditioning', identifier: 'lex' },
-  // Lex ETX (East Texas) — Tyler, TX
-  { accountId: '102262219515631457064', locationId: '7913826327010230630', title: 'LEX ETX', identifier: 'lex-etx' },
-  // Lyons — Rockwall
-  { accountId: '104110704176658195109', locationId: '379116535546276113', title: 'Lyons Air Conditioning and Heating', identifier: 'lyons' },
-];
+async function loadLocations(): Promise<Location[]> {
+  const rows = await getGoogleLocations();
+  return rows.map((r) => ({
+    accountId: r.accountId,
+    locationId: r.locationId,
+    title: r.name,
+    identifier: r.slug,
+  }));
+}
 
 const STAR_NUM: Record<string, number> = {
   ONE: 1,
@@ -84,11 +86,12 @@ async function fetchPage(
 
 export async function fetchAllReviews(): Promise<FetchResult> {
   const token = await getTokenManager().getAccessToken();
+  const locations = await loadLocations();
   const reviews: RawReview[] = [];
   const locationStats: Record<string, number> = {};
   const reportedTotals: Record<string, number> = {};
 
-  for (const loc of LOCATIONS) {
+  for (const loc of locations) {
     let pageToken: string | undefined;
     let count = 0;
     let pageNum = 0;
@@ -143,4 +146,13 @@ export async function fetchAllReviews(): Promise<FetchResult> {
   return { reviews, locationStats, reportedTotals };
 }
 
-export const REVIEW_LOCATIONS = LOCATIONS.map((l) => ({ id: l.identifier, name: l.title }));
+/**
+ * Fresh list of locations for UI consumers (e.g. the reviews-panel filter).
+ * Was previously a module-level `REVIEW_LOCATIONS` array derived from the
+ * hardcoded LOCATIONS constant; now it reads from the DB so it stays in
+ * sync with the wizard. Components that need the list should await this.
+ */
+export async function getReviewLocations(): Promise<Array<{ id: string; name: string }>> {
+  const rows = await getGoogleLocations();
+  return rows.map((l) => ({ id: l.slug, name: l.name }));
+}

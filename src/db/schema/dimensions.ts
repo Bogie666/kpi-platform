@@ -9,7 +9,15 @@ export const departments = pgTable('departments', {
   id: serial('id').primaryKey(),
   code: text('code').notNull().unique(),
   name: text('name').notNull(),
+  // `colorToken` is the CSS var name (e.g. '--d-hvac_service'). `color`
+  // is the hex value the wizard captures; layout.tsx emits a `:root` block
+  // that binds the two at runtime so every `var(--d-${code})` in existing
+  // components keeps resolving without per-component refactors.
   colorToken: text('color_token').notNull(),
+  color: text('color'),
+  icon: text('icon'),
+  hasTechnicians: boolean('has_technicians').notNull().default(true),
+  hasComfortAdvisors: boolean('has_comfort_advisors').notNull().default(false),
   sortOrder: integer('sort_order').notNull().default(0),
   active: boolean('active').notNull().default(true),
   createdAt: timestamp('created_at').defaultNow().notNull(),

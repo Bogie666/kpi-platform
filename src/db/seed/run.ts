@@ -62,6 +62,17 @@ export interface SeedReport {
 }
 
 export async function runSeed(log: (msg: string) => void = console.log): Promise<SeedReport> {
+  // The seed data is Lex-specific demo content (BU ids, technician names,
+  // sample financials). On a fresh kpi-platform deployment the setup
+  // wizard is the source of truth for divisions + BUs, so seeding would
+  // overwrite the real values. Gate behind an explicit env flag in
+  // production to prevent accidental wipes.
+  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_DEMO_SEED !== 'true') {
+    throw new Error(
+      'runSeed() is a demo/dev-only fixture. Set ALLOW_DEMO_SEED=true to override.',
+    );
+  }
+
   const url =
     process.env.DATABASE_URL_UNPOOLED ??
     process.env.POSTGRES_URL_NON_POOLING ??

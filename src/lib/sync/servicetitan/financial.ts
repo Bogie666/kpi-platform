@@ -14,8 +14,9 @@
  */
 import { and, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
-import { businessUnits, financialDaily } from '@/db/schema';
+import { financialDaily } from '@/db/schema';
 import { collectResource } from './raw-client';
+import { loadBuToDeptCodeMap } from './bu-map';
 import {
   startSyncRun,
   finishSyncRunSuccess,
@@ -109,14 +110,6 @@ async function purgeSeedRowsForWindow(window: SyncWindow): Promise<number> {
   return res.length;
 }
 
-async function loadBuToDeptMap(): Promise<Map<number, string | null>> {
-  const database = db();
-  const rows = await database
-    .select({ id: businessUnits.id, departmentCode: businessUnits.departmentCode })
-    .from(businessUnits);
-  return new Map(rows.map((r) => [r.id, r.departmentCode]));
-}
-
 export async function syncFinancial(
   window: SyncWindow,
   trigger: SyncTrigger,
@@ -147,7 +140,7 @@ export async function syncFinancial(
   let itemsDropped = 0;
 
   try {
-    const buToDept = await loadBuToDeptMap();
+    const buToDept = await loadBuToDeptCodeMap();
 
     // Pull every invoice in the window (full records, items included).
     // ST accepts `invoicedOnOrAfter` / `invoicedOnOrBefore` as ISO datetimes;

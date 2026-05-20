@@ -14,8 +14,9 @@
  */
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
-import { businessUnits, estimateAnalysis } from '@/db/schema';
+import { estimateAnalysis } from '@/db/schema';
 import { collectResource } from './raw-client';
+import { loadBuToDeptCodeMap } from './bu-map';
 import {
   startSyncRun,
   finishSyncRunSuccess,
@@ -59,14 +60,6 @@ function estimateSubtotalCents(e: StEstimate): number {
 function createdOnDate(e: StEstimate): string {
   if (!e.createdOn) return new Date().toISOString().slice(0, 10);
   return e.createdOn.slice(0, 10);
-}
-
-async function loadBuToDeptMap(): Promise<Map<number, string | null>> {
-  const database = db();
-  const rows = await database
-    .select({ id: businessUnits.id, departmentCode: businessUnits.departmentCode })
-    .from(businessUnits);
-  return new Map(rows.map((r) => [r.id, r.departmentCode]));
 }
 
 /**
@@ -130,7 +123,7 @@ export async function syncEstimates(
   const unmapped = new Set<number>();
 
   try {
-    const buToDept = await loadBuToDeptMap();
+    const buToDept = await loadBuToDeptCodeMap();
 
     // Pull every open estimate. ST may have tens of thousands of these
     // accumulated over years; ~40-80 pages at 500/page is typical.

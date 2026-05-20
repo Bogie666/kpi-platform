@@ -20,6 +20,7 @@ import { and, eq, gte, lte, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
 import { callCenterDaily, callCenterHourly } from '@/db/schema';
 import { collectResource } from './raw-client';
+import { getBusinessTz } from '@/lib/time';
 import {
   startSyncRun,
   finishSyncRunSuccess,
@@ -76,27 +77,27 @@ function parseDuration(s: string | null | undefined): number {
  * reads naturally — a call taken at 8am CT shows up as "8a", not as
  * the UTC equivalent that swings 5–6 hours forward.
  */
-const LOCAL_TZ = 'America/Chicago';
-const dateFmt = new Intl.DateTimeFormat('en-CA', {
-  timeZone: LOCAL_TZ,
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-});
-const hourFmt = new Intl.DateTimeFormat('en-US', {
-  timeZone: LOCAL_TZ,
-  hour: '2-digit',
-  hour12: false,
-});
-
-function localBucket(receivedOn: string): { date: string; hour: number } {
-  const d = new Date(receivedOn);
-  const date = dateFmt.format(d); // en-CA → YYYY-MM-DD
-  // hourFmt may emit "00" through "23" — sometimes "24" at midnight in
-  // some locales, so coerce defensively.
-  const raw = Number(hourFmt.format(d));
-  const hour = ((raw % 24) + 24) % 24;
-  return { date, hour };
+// Formatters are tz-dependent — wizard-driven, not a compile-time constant.
+// Build once per sync run inside the worker and pass into localBucket.
+function makeBucketers(tz: string) {
+  const dateFmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const hourFmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour: '2-digit',
+    hour12: false,
+  });
+  return function localBucket(receivedOn: string): { date: string; hour: number } {
+    const d = new Date(receivedOn);
+    const date = dateFmt.format(d); // en-CA → YYYY-MM-DD
+    const raw = Number(hourFmt.format(d));
+    const hour = ((raw % 24) + 24) % 24;
+    return { date, hour };
+  };
 }
 
 export async function syncCallcenter(
@@ -124,6 +125,8 @@ export async function syncCallcenter(
   const runId = start.runId;
 
   try {
+    const tz = await getBusinessTz();
+    const localBucket = makeBucketers(tz);
     // Pull every call received in the window. `createdOnOrAfter` filters
     // by record creation time, which aligns with receivedOn for Inbound
     // calls in practice.
