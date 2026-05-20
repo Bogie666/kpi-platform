@@ -60,8 +60,8 @@ async function runStReport(
   parameters: Array<{ name: string; value: unknown }>,
   page = 1,
 ): Promise<StReportDataPage> {
-  const cfg = readStConfig();
-  const token = await getAccessToken();
+  const cfg = await readStConfig();
+  const token = await getAccessToken(cfg);
   const url = `${cfg.apiBase}/reporting/v2/tenant/${cfg.tenantId}/report-category/${REPORT_CATEGORY}/reports/${REPORT_ID}/data?page=${page}&pageSize=5000`;
 
   const MAX_ATTEMPTS = 6;

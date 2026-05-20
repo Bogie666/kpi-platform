@@ -25,7 +25,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               }}
             />
             <div className="flex flex-col leading-tight">
-              <span className="text-[13px] font-semibold tracking-tight">Lex KPI Admin</span>
+              <span className="text-[13px] font-semibold tracking-tight">KPI Admin</span>
               <span className="text-[11px] text-muted hidden sm:inline">
                 Operational config
               </span>

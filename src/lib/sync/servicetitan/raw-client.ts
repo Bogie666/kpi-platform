@@ -100,7 +100,7 @@ function encodeQuery(q: Record<string, string | number | boolean | string[] | un
  * Caller can break early; pagination follows until `hasMore === false`.
  */
 export async function* iterateResource<T = unknown>(args: ResourceQueryArgs): AsyncGenerator<T> {
-  const cfg = args.cfg ?? readStConfig();
+  const cfg = args.cfg ?? (await readStConfig());
   const token = await getAccessToken(cfg);
   const pageSize = args.pageSize ?? DEFAULT_PAGE_SIZE;
   const baseQuery = { ...(args.query ?? {}), pageSize };
@@ -145,7 +145,7 @@ export async function collectResource<T = unknown>(args: ResourceQueryArgs): Pro
 export async function fetchResourcePage<T = unknown>(
   args: ResourceQueryArgs & { page?: number },
 ): Promise<ResourcePage<T>> {
-  const cfg = args.cfg ?? readStConfig();
+  const cfg = args.cfg ?? (await readStConfig());
   const token = await getAccessToken(cfg);
   const qs = encodeQuery({
     ...(args.query ?? {}),

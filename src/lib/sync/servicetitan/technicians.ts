@@ -19,8 +19,9 @@
  */
 import { and, eq, gte, lte, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
-import { businessUnits, technicianDaily } from '@/db/schema';
+import { technicianDaily } from '@/db/schema';
 import { collectResource } from './raw-client';
+import { loadBuToDeptCodeMap } from './bu-map';
 import {
   startSyncRun,
   finishSyncRunSuccess,
@@ -104,14 +105,6 @@ function estimateSubtotalCents(e: StEstimate): number {
   const n = typeof raw === 'number' ? raw : Number(raw);
   if (!Number.isFinite(n)) return 0;
   return Math.round(n * 100);
-}
-
-async function loadBuToDeptMap(): Promise<Map<number, string | null>> {
-  const database = db();
-  const rows = await database
-    .select({ id: businessUnits.id, departmentCode: businessUnits.departmentCode })
-    .from(businessUnits);
-  return new Map(rows.map((r) => [r.id, r.departmentCode]));
 }
 
 async function loadJobTypeThresholds(): Promise<Map<number, number>> {
@@ -245,7 +238,7 @@ export async function syncTechnicians(
 
   try {
     const [buToDept, thresholds, soldByJob, empNames] = await Promise.all([
-      loadBuToDeptMap(),
+      loadBuToDeptCodeMap(),
       loadJobTypeThresholds(),
       loadSoldEstimateSubtotals(window),
       loadRosterNames(window),

@@ -7,7 +7,8 @@ import { NextResponse } from 'next/server';
 import { db } from '@/db/client';
 import { businessUnits } from '@/db/schema';
 import { collectResource } from '@/lib/sync/servicetitan/raw-client';
-import { localTodayISO, shiftISO } from '@/lib/time';
+import { loadBuToDivision } from '@/lib/sync/servicetitan/bu-map';
+import { getBusinessTz, localTodayISO, shiftISO } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -77,15 +78,15 @@ const shiftDate = shiftISO;
  * — depending on UTC offset — is the day before in UTC. Build the bounds
  * by formatting the same wall-clock time in America/Chicago and converting.
  */
-function localDayStartUTC(localDay: string, addDays = 0): string {
-  // Construct midnight CT (UTC-5/UTC-6) for `localDay`. Easiest path: build
-  // the local midnight in en-CA and use Intl to figure the UTC offset.
+function localDayStartUTC(localDay: string, addDays: number, tz: string): string {
+  // Construct midnight in `tz` for `localDay`. Easiest path: build the
+  // local midnight in en-CA and use Intl to figure the UTC offset.
   const [y, m, d] = localDay.split('-').map(Number);
   // Start with naive UTC midnight; nudge by the TZ offset for that date.
   const naive = new Date(Date.UTC(y, m - 1, d + addDays, 0, 0, 0));
   // What does Intl say the local time is for this UTC instant?
   const fmt = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Chicago',
+    timeZone: tz,
     hour: '2-digit',
     hour12: false,
   });
@@ -96,15 +97,16 @@ function localDayStartUTC(localDay: string, addDays = 0): string {
 }
 
 export async function GET() {
-  const today = localTodayISO();
+  const tz = await getBusinessTz();
+  const today = await localTodayISO();
   const windowEnd = shiftDate(today, 7);
 
   // 1. Pull appointments scheduled to start in the next 7 days (CT-local).
   const appts = await collectResource<StAppointment>({
     path: '/jpm/v2/tenant/{tenant}/appointments',
     query: {
-      startsOnOrAfter: localDayStartUTC(today, 0),
-      startsBefore: localDayStartUTC(today, 7),
+      startsOnOrAfter: localDayStartUTC(today, 0, tz),
+      startsBefore: localDayStartUTC(today, 7, tz),
     },
   });
 
@@ -134,29 +136,29 @@ export async function GET() {
     });
   }
 
-  // 2. Pull job type dimension (small set, ~82 rows) and BU → dept map.
-  const [types, database] = await Promise.all([
+  // 2. Pull job type dimension (small set, ~82 rows) and BU → division map.
+  const [types, divisionByBu, buNameRows] = await Promise.all([
     collectResource<StJobType>({
       path: '/jpm/v2/tenant/{tenant}/job-types',
       query: {},
     }),
-    Promise.resolve(db()),
+    loadBuToDivision(),
+    db()
+      .select({ id: businessUnits.id, name: businessUnits.name })
+      .from(businessUnits),
   ]);
   const typeNames = new Map<number, string>();
   for (const t of types) {
     typeNames.set(t.id, (t.name ?? `type#${t.id}`).trim());
   }
 
-  const buRows = await database
-    .select({
-      id: businessUnits.id,
-      name: businessUnits.name,
-      departmentCode: businessUnits.departmentCode,
-    })
-    .from(businessUnits);
+  // Local shape mirrors the prior inline map ({ code, name }) so downstream
+  // consumers (the grouping loop below) don't need to change.
+  const buNameById = new Map(buNameRows.map((r) => [r.id, r.name]));
   const buToDept = new Map<number, { code: string | null; name: string }>();
-  for (const r of buRows) {
-    buToDept.set(r.id, { code: r.departmentCode, name: r.name });
+  for (const [id, name] of buNameById) {
+    const div = divisionByBu.get(id);
+    buToDept.set(id, { code: div?.code ?? null, name });
   }
 
   // 3. Pull just the jobs we need, in chunks. ST supports `ids` filter
@@ -224,7 +226,7 @@ export async function GET() {
     // Bucket by local-CT date, not UTC. An 11pm-CT appointment is 04:00Z
     // the next day — slicing the UTC string puts it on the wrong bucket.
     const day = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'America/Chicago',
+      timeZone: tz,
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',

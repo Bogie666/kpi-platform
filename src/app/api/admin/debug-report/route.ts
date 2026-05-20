@@ -66,7 +66,7 @@ interface StReportDataPage {
 }
 
 async function listCategories(token: string): Promise<StReportCategory[]> {
-  const cfg = readStConfig();
+  const cfg = await readStConfig();
   const url = `${cfg.apiBase}/reporting/v2/tenant/${cfg.tenantId}/report-categories?pageSize=500`;
   const res = await fetch(url, {
     headers: {
@@ -84,7 +84,7 @@ async function findReport(
   token: string,
   reportId: string,
 ): Promise<{ category: StReportCategory; report: StReportListItem } | null> {
-  const cfg = readStConfig();
+  const cfg = await readStConfig();
   const cats = await listCategories(token);
   for (const cat of cats) {
     let page = 1;
@@ -114,7 +114,7 @@ async function fetchReportDefinition(
   categoryId: string,
   reportId: string,
 ): Promise<StReportDefinition> {
-  const cfg = readStConfig();
+  const cfg = await readStConfig();
   const url = `${cfg.apiBase}/reporting/v2/tenant/${cfg.tenantId}/report-category/${categoryId}/reports/${reportId}`;
   const res = await fetch(url, {
     headers: {
@@ -133,7 +133,7 @@ async function runReport(
   reportId: string,
   parameters: Array<{ name: string; value: unknown }>,
 ): Promise<StReportDataPage> {
-  const cfg = readStConfig();
+  const cfg = await readStConfig();
   const url = `${cfg.apiBase}/reporting/v2/tenant/${cfg.tenantId}/report-category/${categoryId}/reports/${reportId}/data?pageSize=5000`;
   const res = await fetch(url, {
     method: 'POST',
@@ -162,7 +162,7 @@ export async function GET(req: NextRequest) {
   if (listMode) {
     try {
       const token = await getAccessToken();
-      const cfg = readStConfig();
+      const cfg = await readStConfig();
       const cats = await listCategories(token);
       const out: Array<{ categoryId: string; categoryName: string | undefined; reports: Array<{ id: string; name: string | undefined }> }> = [];
       for (const cat of cats) {
