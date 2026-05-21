@@ -25,6 +25,13 @@ const SECTIONS: AdminSection[] = [
     status: 'ready',
   },
   {
+    href: '/admin/google-reviews',
+    title: 'Google reviews',
+    description:
+      'Connect or update the Google Business Profile credentials and the list of locations the dashboard syncs reviews for. Safe to skip during setup and finish here later.',
+    status: 'ready',
+  },
+  {
     href: '/admin/sync',
     title: 'Sync status',
     description:

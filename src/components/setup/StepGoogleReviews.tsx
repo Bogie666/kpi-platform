@@ -24,6 +24,7 @@ export function StepGoogleReviews({
   initialLocations,
   onSave,
   saving,
+  mode = 'wizard',
 }: {
   initialCreds: Partial<StepGoogleValues>;
   initialLocations: GoogleLocationDraft[];
@@ -33,6 +34,9 @@ export function StepGoogleReviews({
     skip: boolean;
   }) => void | Promise<void>;
   saving?: boolean;
+  // 'wizard' shows skip + finish; 'admin' shows a single save button and
+  // drops the step counter so the same component works on /admin too.
+  mode?: 'wizard' | 'admin';
 }) {
   const [creds, setCreds] = useState<StepGoogleValues>({
     google_client_id: initialCreds.google_client_id ?? '',
@@ -68,24 +72,25 @@ export function StepGoogleReviews({
   return (
     <div className="flex flex-col gap-4">
       <Panel
-        eyebrow="Step 4 of 4"
+        eyebrow={mode === 'wizard' ? 'Step 4 of 4' : 'Settings'}
         title="Google reviews"
         right={
           <div className="flex items-center gap-2">
-            <Button variant="ghost" disabled={saving} onClick={() => submit(true)}>
-              Skip for now
-            </Button>
+            {mode === 'wizard' && (
+              <Button variant="ghost" disabled={saving} onClick={() => submit(true)}>
+                Skip for now
+              </Button>
+            )}
             <Button variant="primary" disabled={saving} onClick={() => submit(false)}>
-              {saving ? 'Saving…' : 'Finish setup'}
+              {saving ? 'Saving…' : mode === 'wizard' ? 'Finish setup' : 'Save changes'}
             </Button>
           </div>
         }
       >
         <p className="text-[13px] text-muted leading-relaxed max-w-2xl">
-          Connect Google Business Profile to sync customer reviews into the
-          dashboard. You'll need an OAuth refresh token for an account that
-          owns the locations you want to track. If you don't have these set
-          up yet, skip — you can finish this step from the admin page later.
+          {mode === 'wizard'
+            ? "Connect Google Business Profile to sync customer reviews into the dashboard. You'll need an OAuth refresh token for an account that owns the locations you want to track. This step is optional — if you don't have these set up yet, click \"Skip for now\" and finish whenever you're ready from Admin → Google reviews."
+            : "Connect or update your Google Business Profile credentials. Locations listed here are the ones the dashboard syncs reviews for."}
         </p>
       </Panel>
 
