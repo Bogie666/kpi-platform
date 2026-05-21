@@ -28,6 +28,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // chart and panel references `var(--d-${code})` directly, so this single
   // injected <style> block lets the wizard control colors without a per-
   // component refactor (see Build Spec §9.4).
+  //
+  // Render the <style> inline at the top of <body> — putting it directly
+  // inside <head> conflicts with Next.js's own head management in App
+  // Router and triggers a hydration mismatch (React #418).
   let divisionStyles = '';
   try {
     const divisions = await getDivisions(true);
@@ -42,15 +46,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 
   return (
     <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`} data-density="cozy">
-      <head>
+      <body>
         {divisionStyles && (
           <style
             data-source="company-config-divisions"
             dangerouslySetInnerHTML={{ __html: divisionStyles }}
           />
         )}
-      </head>
-      <body>
         <Providers>{children}</Providers>
       </body>
     </html>
