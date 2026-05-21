@@ -14,13 +14,19 @@ export default async function DashboardPage() {
   // the flag is true forever (the admin can still revisit /setup directly).
   // We do this here (server component) rather than in Edge middleware to
   // avoid an extra DB roundtrip on every middleware-gated request.
+  //
+  // CRITICAL: `redirect()` throws a NEXT_REDIRECT control-flow error that
+  // Next.js handles at the route boundary. It MUST propagate — wrapping it
+  // in a try/catch swallows the redirect, which is why this is split into
+  // a separate read + check.
+  let completed = false;
   try {
-    const completed = await isSetupCompleted();
-    if (!completed) redirect('/setup');
+    completed = await isSetupCompleted();
   } catch {
-    // If the DB isn't reachable (e.g. DATABASE_URL not wired yet), fall through
-    // to the dashboard; the panels themselves will surface the connection error.
+    // DB unreachable (e.g. DATABASE_URL not wired yet) — fall through to
+    // the dashboard; the panels themselves surface the connection error.
   }
+  if (!completed) redirect('/setup');
 
   return (
     <Suspense fallback={null}>
