@@ -32,6 +32,13 @@ const SECTIONS: AdminSection[] = [
     status: 'ready',
   },
   {
+    href: '/admin/technician-roles',
+    title: 'Technician roles',
+    description:
+      'Create and order the tabs that show up on the Technicians page (e.g. "Sales Team 1", "HVAC Maintenance", "Plumbing"). Pick the metric each tab ranks by and the label that appears with it.',
+    status: 'ready',
+  },
+  {
     href: '/admin/sync',
     title: 'Sync status',
     description:

@@ -18,6 +18,7 @@ import {
   departments,
   googleLocations,
   setupLog,
+  technicianRoles,
 } from '@/db/schema';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -448,6 +449,104 @@ export async function saveDivisions(
     upserted++;
   }
   return { upserted };
+}
+
+// ─── Technician roles ───────────────────────────────────────────────────────
+
+export type RoleMetric = 'revenue' | 'avgTicket' | 'jobs' | 'closeRate';
+
+export interface TechnicianRole {
+  code: string;
+  name: string;
+  primaryMetric: RoleMetric;
+  primaryMetricLabel: string;
+  sortOrder: number;
+  active: boolean;
+}
+
+export async function getTechnicianRoles(includeInactive = false): Promise<TechnicianRole[]> {
+  const q = db()
+    .select({
+      code: technicianRoles.code,
+      name: technicianRoles.name,
+      primaryMetric: technicianRoles.primaryMetric,
+      primaryMetricLabel: technicianRoles.primaryMetricLabel,
+      sortOrder: technicianRoles.sortOrder,
+      active: technicianRoles.active,
+    })
+    .from(technicianRoles)
+    .orderBy(technicianRoles.sortOrder);
+  const rows = includeInactive ? await q : await q.where(eq(technicianRoles.active, true));
+  return rows.map((r) => ({
+    code: r.code,
+    name: r.name,
+    primaryMetric: r.primaryMetric as RoleMetric,
+    primaryMetricLabel: r.primaryMetricLabel,
+    sortOrder: r.sortOrder,
+    active: r.active,
+  }));
+}
+
+/**
+ * Save the complete list of roles. Upserts everything in `roles` and
+ * soft-deletes any existing role whose `code` is not in the new list
+ * (matches the BU / google-location pattern).
+ */
+export async function saveTechnicianRoles(
+  roles: Array<{
+    code: string;
+    name: string;
+    primaryMetric: RoleMetric;
+    primaryMetricLabel: string;
+    sortOrder: number;
+  }>,
+): Promise<{ upserted: number; deactivated: number }> {
+  const database = db();
+  let upserted = 0;
+  for (const r of roles) {
+    await database
+      .insert(technicianRoles)
+      .values({
+        code: r.code,
+        name: r.name,
+        primaryMetric: r.primaryMetric,
+        primaryMetricLabel: r.primaryMetricLabel,
+        sortOrder: r.sortOrder,
+        active: true,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: technicianRoles.code,
+        set: {
+          name: r.name,
+          primaryMetric: r.primaryMetric,
+          primaryMetricLabel: r.primaryMetricLabel,
+          sortOrder: r.sortOrder,
+          active: true,
+          updatedAt: new Date(),
+        },
+      });
+    upserted++;
+  }
+  let deactivated = 0;
+  if (roles.length > 0) {
+    const incomingCodes = roles.map((r) => r.code);
+    const rows = await database
+      .update(technicianRoles)
+      .set({ active: false, updatedAt: new Date() })
+      .where(
+        and(
+          eq(technicianRoles.active, true),
+          sql`${technicianRoles.code} NOT IN (${sql.join(
+            incomingCodes.map((c) => sql`${c}`),
+            sql`, `,
+          )})`,
+        ),
+      )
+      .returning({ code: technicianRoles.code });
+    deactivated = rows.length;
+  }
+  return { upserted, deactivated };
 }
 
 // ─── Setup state ────────────────────────────────────────────────────────────
