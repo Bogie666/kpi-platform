@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Panel } from '@/components/primitives/panel';
 import { SectionHead } from '@/components/primitives/section-head';
+import { SyncNowButton } from '@/components/admin/sync-now-button';
 
 interface AdminSection {
   href: string;
@@ -22,6 +23,34 @@ const SECTIONS: AdminSection[] = [
     title: 'Technician photos',
     description:
       'Upload a photo per technician. Replaces the initials circle on every leaderboard, podium, and ranking. Stored in Vercel Blob.',
+    status: 'ready',
+  },
+  {
+    href: '/admin/google-reviews',
+    title: 'Google reviews',
+    description:
+      'Connect or update the Google Business Profile credentials and the list of locations the dashboard syncs reviews for. Safe to skip during setup and finish here later.',
+    status: 'ready',
+  },
+  {
+    href: '/admin/technician-roles',
+    title: 'Technician roles',
+    description:
+      'Create and order the tabs that show up on the Technicians page (e.g. "Sales Team 1", "HVAC Maintenance", "Plumbing"). Pick the metric each tab ranks by and the label that appears with it.',
+    status: 'ready',
+  },
+  {
+    href: '/admin/division-roles',
+    title: 'Division → role auto-bucketing',
+    description:
+      "Pick which Technicians tab each division feeds into by default. Sync uses this for every employee that isn't manually locked on the Employees page.",
+    status: 'ready',
+  },
+  {
+    href: '/admin/employees',
+    title: 'Employee role assignment',
+    description:
+      'Override the sync\'s auto-bucketing on a per-employee basis. Lock a tech to a specific role (like "Sales Team 1") and every sync respects your choice; leave them unlocked to keep the default behavior.',
     status: 'ready',
   },
   {
@@ -57,6 +86,16 @@ export default function AdminHome() {
   return (
     <div className="flex flex-col gap-6">
       <SectionHead eyebrow="Admin" title="Operational config" />
+
+      <Panel eyebrow="Sync" title="Pull latest data from sources">
+        <p className="text-[13px] text-muted leading-relaxed max-w-2xl mb-3">
+          The cron tick runs every 15 minutes automatically. Click below to
+          force a sync right now — useful right after onboarding, after a
+          config change, or whenever the dashboard feels stale.
+        </p>
+        <SyncNowButton variant="primary" />
+      </Panel>
+
       <div
         className="grid gap-4"
         style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}

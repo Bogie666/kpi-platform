@@ -3,6 +3,9 @@
 import { useEffect, useState } from 'react';
 import { Check } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { Panel } from '@/components/primitives/panel';
+import { Button } from '@/components/primitives/button';
+import { SyncNowButton } from '@/components/admin/sync-now-button';
 import { StepCompany, type StepCompanyValues } from './StepCompany';
 import { StepServiceTitan, type StepServiceTitanValues } from './StepServiceTitan';
 import {
@@ -59,10 +62,9 @@ export function SetupWizard() {
       if (!j.ok) throw new Error(j.error ?? `Failed (${res.status})`);
       await load();
       setActiveStep(Math.min(step + 1, 4));
-      if (complete) {
-        // Hard reload so layout.tsx re-reads config and the dashboard becomes usable.
-        window.location.href = '/';
-      }
+      // On completion, stay on this page and surface the "all done" panel
+      // with a "Sync now" affordance — the user can kick off the first
+      // sync without waiting up to 15 minutes for the cron tick.
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -84,6 +86,23 @@ export function SetupWizard() {
         <div className="text-[12px] text-down bg-down-bg border border-down/30 rounded-btn px-3 py-2">
           {error}
         </div>
+      )}
+
+      {state.completed && (
+        <Panel eyebrow="Setup complete" title="Ready to sync data">
+          <p className="text-[13px] text-muted leading-relaxed max-w-2xl mb-4">
+            Configuration is saved. The dashboard pulls fresh data from
+            ServiceTitan every 15 minutes via a cron job, but you can kick
+            off the first sync now so you don't have to wait. A first sync
+            against a tenant's full window can take several minutes.
+          </p>
+          <div className="flex items-center gap-3 flex-wrap">
+            <SyncNowButton variant="primary" label="Sync now" />
+            <Button onClick={() => (window.location.href = '/')}>
+              Go to dashboard
+            </Button>
+          </div>
+        </Panel>
       )}
 
       {activeStep === 1 && (

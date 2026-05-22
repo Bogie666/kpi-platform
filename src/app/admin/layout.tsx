@@ -36,6 +36,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <AdminNavLink href="/admin">Home</AdminNavLink>
             <AdminNavLink href="/admin/targets">Targets</AdminNavLink>
             <AdminNavLink href="/admin/photos">Photos</AdminNavLink>
+            <AdminNavLink href="/admin/google-reviews">Google reviews</AdminNavLink>
+            <AdminNavLink href="/admin/technician-roles">Tech roles</AdminNavLink>
+            <AdminNavLink href="/admin/division-roles">Division → role</AdminNavLink>
+            <AdminNavLink href="/admin/employees">Employees</AdminNavLink>
           </nav>
 
           <div className="ml-auto flex items-center gap-3">

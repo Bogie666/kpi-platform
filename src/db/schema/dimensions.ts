@@ -18,6 +18,16 @@ export const departments = pgTable('departments', {
   icon: text('icon'),
   hasTechnicians: boolean('has_technicians').notNull().default(true),
   hasComfortAdvisors: boolean('has_comfort_advisors').notNull().default(false),
+  /**
+   * Auto-bucketing target — when a technician's job belongs to this
+   * division and the tech isn't manually role-locked (employees.role_locked),
+   * the sync attributes the row to this role. Null = "drop"; jobs in
+   * this division skip the technician aggregation entirely.
+   *
+   * Set in /admin/division-roles. Falls back to the hardcoded DEPT_TO_ROLE
+   * map in technicians.ts for backward compat with pre-existing tenants.
+   */
+  defaultRoleCode: text('default_role_code'),
   sortOrder: integer('sort_order').notNull().default(0),
   active: boolean('active').notNull().default(true),
   createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -50,6 +60,14 @@ export const employees = pgTable(
     name: text('name').notNull(),
     normalizedName: text('normalized_name').notNull(),
     roleCode: text('role_code'),
+    /**
+     * When `roleLocked = true`, the technicians sync respects `roleCode`
+     * as the source of truth for this employee instead of auto-bucketing
+     * them via the division→role mapping. Lets the admin assign people
+     * to custom roles (e.g. "Sales Team 1") without losing the auto-
+     * assignment behavior for everyone else.
+     */
+    roleLocked: boolean('role_locked').notNull().default(false),
     departmentCode: text('department_code'),
     active: boolean('active').notNull().default(true),
     photoUrl: text('photo_url'),
