@@ -1,0 +1,1 @@
+ALTER TABLE "employees" ADD COLUMN "role_locked" boolean DEFAULT false NOT NULL;

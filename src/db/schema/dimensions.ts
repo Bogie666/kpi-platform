@@ -50,6 +50,14 @@ export const employees = pgTable(
     name: text('name').notNull(),
     normalizedName: text('normalized_name').notNull(),
     roleCode: text('role_code'),
+    /**
+     * When `roleLocked = true`, the technicians sync respects `roleCode`
+     * as the source of truth for this employee instead of auto-bucketing
+     * them via the division→role mapping. Lets the admin assign people
+     * to custom roles (e.g. "Sales Team 1") without losing the auto-
+     * assignment behavior for everyone else.
+     */
+    roleLocked: boolean('role_locked').notNull().default(false),
     departmentCode: text('department_code'),
     active: boolean('active').notNull().default(true),
     photoUrl: text('photo_url'),

@@ -16,6 +16,7 @@ import {
   businessUnits,
   companyConfig,
   departments,
+  employees,
   googleLocations,
   setupLog,
   technicianRoles,
@@ -547,6 +548,60 @@ export async function saveTechnicianRoles(
     deactivated = rows.length;
   }
   return { upserted, deactivated };
+}
+
+// ─── Employees (role overrides) ─────────────────────────────────────────────
+
+export interface EmployeeRow {
+  id: number;
+  serviceTitanId: number | null;
+  name: string;
+  roleCode: string | null;
+  roleLocked: boolean;
+  departmentCode: string | null;
+  active: boolean;
+}
+
+export async function getEmployees(includeInactive = false): Promise<EmployeeRow[]> {
+  const q = db()
+    .select({
+      id: employees.id,
+      serviceTitanId: employees.serviceTitanId,
+      name: employees.name,
+      roleCode: employees.roleCode,
+      roleLocked: employees.roleLocked,
+      departmentCode: employees.departmentCode,
+      active: employees.active,
+    })
+    .from(employees)
+    .orderBy(employees.name);
+  const rows = includeInactive ? await q : await q.where(eq(employees.active, true));
+  return rows;
+}
+
+/**
+ * Bulk-update role assignments + lock flags. Each entry can either lock
+ * a specific role onto the employee or release them back to sync-driven
+ * auto-bucketing.
+ */
+export async function setEmployeeRoles(
+  updates: Array<{ id: number; roleCode: string | null; roleLocked: boolean }>,
+): Promise<{ updated: number }> {
+  let updated = 0;
+  for (const u of updates) {
+    await db()
+      .update(employees)
+      .set({
+        // Don't clobber the original sync-derived role when the admin
+        // unlocks — keep whatever's there; the next sync repopulates it.
+        ...(u.roleLocked ? { roleCode: u.roleCode } : {}),
+        roleLocked: u.roleLocked,
+        updatedAt: new Date(),
+      })
+      .where(eq(employees.id, u.id));
+    updated++;
+  }
+  return { updated };
 }
 
 // ─── Setup state ────────────────────────────────────────────────────────────

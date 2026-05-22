@@ -39,6 +39,13 @@ const SECTIONS: AdminSection[] = [
     status: 'ready',
   },
   {
+    href: '/admin/employees',
+    title: 'Employee role assignment',
+    description:
+      'Override the sync\'s auto-bucketing on a per-employee basis. Lock a tech to a specific role (like "Sales Team 1") and every sync respects your choice; leave them unlocked to keep the default behavior.',
+    status: 'ready',
+  },
+  {
     href: '/admin/sync',
     title: 'Sync status',
     description:

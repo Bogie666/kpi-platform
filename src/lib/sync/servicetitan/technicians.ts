@@ -19,7 +19,7 @@
  */
 import { and, eq, gte, lte, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
-import { technicianDaily } from '@/db/schema';
+import { employees, technicianDaily } from '@/db/schema';
 import { collectResource } from './raw-client';
 import { loadBuToDeptCodeMap } from './bu-map';
 import {
@@ -177,6 +177,25 @@ function isClosedOpportunity(
  * harvested from recent appointment-assignments so the soldById
  * attribution can resolve to a real name in either case.
  */
+/**
+ * Manual role overrides — admins flip `employees.role_locked = true` from
+ * /admin/employees to pin a specific tech to a custom role (e.g. "Sales
+ * Team 1") regardless of what division their jobs belong to.
+ *
+ * Keyed by ST employee id (matches `job.soldById` in the aggregation loop).
+ */
+async function loadRoleOverrides(): Promise<Map<number, string>> {
+  const rows = await db()
+    .select({ stId: employees.serviceTitanId, roleCode: employees.roleCode })
+    .from(employees)
+    .where(eq(employees.roleLocked, true));
+  const m = new Map<number, string>();
+  for (const r of rows) {
+    if (r.stId != null && r.roleCode) m.set(r.stId, r.roleCode);
+  }
+  return m;
+}
+
 async function loadRosterNames(window: SyncWindow): Promise<Map<number, string>> {
   const m = new Map<number, string>();
 
@@ -237,11 +256,12 @@ export async function syncTechnicians(
   const runId = start.runId;
 
   try {
-    const [buToDept, thresholds, soldByJob, empNames] = await Promise.all([
+    const [buToDept, thresholds, soldByJob, empNames, roleOverrides] = await Promise.all([
       loadBuToDeptCodeMap(),
       loadJobTypeThresholds(),
       loadSoldEstimateSubtotals(window),
       loadRosterNames(window),
+      loadRoleOverrides(),
     ]);
 
     const jobs = await collectResource<StJob>({
@@ -284,11 +304,6 @@ export async function syncTechnicians(
         dropped++;
         continue;
       }
-      const role = DEPT_TO_ROLE[dept];
-      if (!role) {
-        dropped++;
-        continue;
-      }
       // Attribute by job.soldById. For installs, this is the Comfort
       // Advisor who closed the original estimate — not the installer
       // who did the physical work. For service jobs where the tech
@@ -300,6 +315,13 @@ export async function syncTechnicians(
         continue;
       }
       const techId = j.soldById;
+      // Manual override beats the auto-bucketing — lets admins pin
+      // specific employees to custom roles regardless of division.
+      const role = roleOverrides.get(techId) ?? DEPT_TO_ROLE[dept];
+      if (!role) {
+        dropped++;
+        continue;
+      }
       const techName = empNames.get(techId) ?? `emp#${techId}`;
       uniqueTechs.add(techId);
 
