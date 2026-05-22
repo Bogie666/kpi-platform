@@ -214,22 +214,23 @@ function Stepper({
         const n = i + 1;
         const isActive = n === active;
         const isDone = n < furthest;
-        const isReachable = n <= furthest;
+        // Every step is freely clickable — the wizard is admin-gated and
+        // saved progress only advances forward (postStep takes max(current,
+        // step+1)), so jumping to a future step just previews the form
+        // without committing. Wizard inputs prefill from saved state if
+        // it's there, otherwise show empty defaults.
         return (
           <li key={label}>
             <button
               type="button"
-              disabled={!isReachable}
-              onClick={() => isReachable && onJump(n)}
+              onClick={() => onJump(n)}
               className={cn(
                 'flex items-center gap-2 px-3 py-1.5 rounded-btn border text-[12px] font-medium transition-colors',
                 isActive
                   ? 'border-accent text-text bg-accent/10'
                   : isDone
                     ? 'border-up/40 text-up bg-up-bg/40 hover:bg-up-bg/60'
-                    : isReachable
-                      ? 'border-border text-muted hover:text-text'
-                      : 'border-border text-muted opacity-50 cursor-not-allowed',
+                    : 'border-border text-muted hover:text-text',
               )}
             >
               <span
