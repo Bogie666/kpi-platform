@@ -1,0 +1,1 @@
+ALTER TABLE "departments" ADD COLUMN "default_role_code" text;

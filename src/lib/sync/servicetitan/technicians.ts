@@ -19,7 +19,7 @@
  */
 import { and, eq, gte, lte, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
-import { employees, technicianDaily } from '@/db/schema';
+import { departments, employees, technicianDaily } from '@/db/schema';
 import { collectResource } from './raw-client';
 import { loadBuToDeptCodeMap } from './bu-map';
 import {
@@ -75,8 +75,14 @@ interface StEstimate {
   subtotal?: number | string | null;
 }
 
-/** Map our dept code → the technician_roles code used for sub-tabs. */
-const DEPT_TO_ROLE: Record<string, string> = {
+/**
+ * Hardcoded fallback for division → role auto-bucketing. The DB-backed
+ * `departments.default_role_code` (set in /admin/division-roles) takes
+ * precedence whenever it's non-null — this map only fires for divisions
+ * left at the default (null) and preserves existing behavior for
+ * pre-existing tenants who haven't visited the new admin page yet.
+ */
+const DEPT_TO_ROLE_FALLBACK: Record<string, string> = {
   hvac_service: 'hvac_tech',
   hvac_sales: 'comfort_advisor',
   hvac_maintenance: 'hvac_maintenance',
@@ -85,6 +91,23 @@ const DEPT_TO_ROLE: Record<string, string> = {
   electrical: 'electrical',
   // etx: no dedicated role — skip rather than miscategorize
 };
+
+/**
+ * Resolve `division code → role code` from the DB. Returns Map keyed by
+ * division code; only entries where `default_role_code` is set are
+ * included (callers fall back to DEPT_TO_ROLE_FALLBACK for the rest).
+ */
+async function loadDeptRoleMap(): Promise<Map<string, string>> {
+  const rows = await db()
+    .select({ code: departments.code, defaultRoleCode: departments.defaultRoleCode })
+    .from(departments)
+    .where(eq(departments.active, true));
+  const m = new Map<string, string>();
+  for (const r of rows) {
+    if (r.defaultRoleCode) m.set(r.code, r.defaultRoleCode);
+  }
+  return m;
+}
 
 const ESTIMATE_LOOKBACK_DAYS = 180;
 
@@ -256,12 +279,13 @@ export async function syncTechnicians(
   const runId = start.runId;
 
   try {
-    const [buToDept, thresholds, soldByJob, empNames, roleOverrides] = await Promise.all([
+    const [buToDept, thresholds, soldByJob, empNames, roleOverrides, deptRoleMap] = await Promise.all([
       loadBuToDeptCodeMap(),
       loadJobTypeThresholds(),
       loadSoldEstimateSubtotals(window),
       loadRosterNames(window),
       loadRoleOverrides(),
+      loadDeptRoleMap(),
     ]);
 
     const jobs = await collectResource<StJob>({
@@ -315,9 +339,14 @@ export async function syncTechnicians(
         continue;
       }
       const techId = j.soldById;
-      // Manual override beats the auto-bucketing — lets admins pin
-      // specific employees to custom roles regardless of division.
-      const role = roleOverrides.get(techId) ?? DEPT_TO_ROLE[dept];
+      // Resolution order:
+      //   1. Per-employee lock (admin pinned them to a role)
+      //   2. DB-backed division → role mapping (set in /admin/division-roles)
+      //   3. Hardcoded fallback (preserves pre-existing tenant behavior)
+      const role =
+        roleOverrides.get(techId) ??
+        deptRoleMap.get(dept) ??
+        DEPT_TO_ROLE_FALLBACK[dept];
       if (!role) {
         dropped++;
         continue;
