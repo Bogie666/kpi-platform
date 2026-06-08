@@ -76,8 +76,17 @@ async function handler(req: NextRequest) {
   const { access_token } = (await tokRes.json()) as { access_token: string };
 
   // Page through BUs. ST returns at most 200 per page on this endpoint.
-  type StBu = { id: number; name: string; active?: boolean };
-  const all: StBu[] = [];
+  // ST's settings/v2 BU shape exposes both `name` (display) and
+  // `officialName` (invoice/legal). Most tenants use `name`, but a few
+  // configurations only fill `officialName` — prefer whichever is set
+  // so we never surface a blank label in the wizard.
+  type StBu = {
+    id: number;
+    name?: string | null;
+    officialName?: string | null;
+    active?: boolean;
+  };
+  const all: Array<{ id: number; name: string; active?: boolean }> = [];
   let page = 1;
   while (true) {
     const url = `${API_BASE}/settings/v2/tenant/${encodeURIComponent(
@@ -96,7 +105,11 @@ async function handler(req: NextRequest) {
     if (body.data?.length) {
       for (const bu of body.data) {
         if (bu.active === false) continue;
-        all.push({ id: bu.id, name: bu.name, active: bu.active });
+        const label =
+          (bu.name && bu.name.trim()) ||
+          (bu.officialName && bu.officialName.trim()) ||
+          `Business Unit #${bu.id}`;
+        all.push({ id: bu.id, name: label, active: bu.active });
       }
     }
     if (!body.hasMore) break;

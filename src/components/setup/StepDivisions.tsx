@@ -276,8 +276,15 @@ export function StepDivisions({
                   key={bu.id}
                   className="flex items-center gap-3 border border-border rounded-btn px-3 py-1.5"
                 >
-                  <span className="text-[13px] flex-1 min-w-0 truncate">{bu.name}</span>
-                  <span className="text-[11px] text-muted font-mono">#{bu.id}</span>
+                  <div className="flex-1 min-w-0 flex flex-col leading-tight">
+                    <span
+                      className="text-[13px] font-medium truncate"
+                      title={`${bu.name} (ST id ${bu.id})`}
+                    >
+                      {bu.name}
+                    </span>
+                    <span className="text-[10px] text-muted font-mono">ST id {bu.id}</span>
+                  </div>
                   <Select
                     className="w-56"
                     value={current === undefined ? '' : current ?? '__drop__'}
