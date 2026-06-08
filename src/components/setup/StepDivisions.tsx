@@ -274,35 +274,41 @@ export function StepDivisions({
               return (
                 <div
                   key={bu.id}
-                  className="flex items-center gap-3 border border-border rounded-btn px-3 py-1.5"
+                  className="flex items-center gap-3 border border-border rounded-btn px-3 py-2"
                 >
                   <div className="flex-1 min-w-0 flex flex-col leading-tight">
                     <span
-                      className="text-[13px] font-medium truncate"
+                      className="text-[14px] font-medium truncate"
                       title={`${bu.name} (ST id ${bu.id})`}
                     >
-                      {bu.name}
+                      {bu.name?.trim() ? bu.name : `Business Unit #${bu.id}`}
                     </span>
-                    <span className="text-[10px] text-muted font-mono">ST id {bu.id}</span>
+                    <span className="text-[10px] text-muted font-mono mt-0.5">
+                      ST id {bu.id}
+                    </span>
                   </div>
-                  <Select
-                    className="w-56"
-                    value={current === undefined ? '' : current ?? '__drop__'}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v === '') setAssignment(bu.id, undefined);
-                      else if (v === '__drop__') setAssignment(bu.id, null);
-                      else setAssignment(bu.id, v);
-                    }}
-                  >
-                    <option value="">— choose —</option>
-                    {divisions.map((d) => (
-                      <option key={d.code} value={d.code}>
-                        {d.name}
-                      </option>
-                    ))}
-                    <option value="__drop__">Drop (don't show)</option>
-                  </Select>
+                  {/* Wrap the Select — its `w-full` default would otherwise
+                      override any width class passed via props and balloon
+                      the dropdown to fill the entire row. */}
+                  <div className="w-44 shrink-0">
+                    <Select
+                      value={current === undefined ? '' : current ?? '__drop__'}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (v === '') setAssignment(bu.id, undefined);
+                        else if (v === '__drop__') setAssignment(bu.id, null);
+                        else setAssignment(bu.id, v);
+                      }}
+                    >
+                      <option value="">— choose —</option>
+                      {divisions.map((d) => (
+                        <option key={d.code} value={d.code}>
+                          {d.name}
+                        </option>
+                      ))}
+                      <option value="__drop__">Drop (don't show)</option>
+                    </Select>
+                  </div>
                   {current === null && (
                     <span title="Marked drop">
                       <X className="h-3.5 w-3.5 text-muted" />
