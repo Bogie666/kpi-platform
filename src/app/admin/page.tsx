@@ -54,6 +54,13 @@ const SECTIONS: AdminSection[] = [
     status: 'ready',
   },
   {
+    href: '/admin/sync-status',
+    title: 'Sync status',
+    description:
+      'See the last run per source with rows fetched, errors, and timing. The place to look first when a tab is showing no data.',
+    status: 'ready',
+  },
+  {
     href: '/admin/sync',
     title: 'Sync status',
     description:
