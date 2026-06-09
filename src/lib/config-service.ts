@@ -604,6 +604,113 @@ export async function setEmployeeRoles(
   return { updated };
 }
 
+// ─── Technician report configuration ────────────────────────────────────────
+
+export type TechnicianReportKpiField =
+  | 'employeeId'
+  | 'employeeName'
+  | 'completedJobs'
+  | 'completedRevenue'
+  | 'opportunity'
+  | 'salesOpportunity'
+  | 'closedOpportunities'
+  | 'closeRate'
+  | 'totalSales'
+  | 'totalJobAverage'
+  | 'optionsPerOpportunity'
+  | 'membershipsSold'
+  | 'leadsSet'
+  | 'totalLeadSales'
+  | 'technicianBusinessUnit'
+  | 'technicianTrade';
+
+export type TechnicianReportColumnMapping = Partial<Record<TechnicianReportKpiField, string>>;
+
+export interface TechnicianReportConfig {
+  id: string;
+  label: string;
+  roleCode: string;
+  departmentCode: string;
+  categoryId: string;
+  reportId: string;
+  active: boolean;
+  columnMapping: TechnicianReportColumnMapping;
+}
+
+const TECHNICIAN_REPORT_CONFIG_KEY = 'technician_report_configs';
+
+function parseTechnicianReportConfigs(value: unknown): TechnicianReportConfig[] {
+  if (!value) return [];
+  const parsed = typeof value === 'string' ? safeJson(value) : value;
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .map((r) => {
+      if (!r || typeof r !== 'object') return null;
+      const obj = r as Record<string, unknown>;
+      const reportId = String(obj.reportId ?? '').trim();
+      const categoryId = String(obj.categoryId ?? '').trim();
+      const roleCode = String(obj.roleCode ?? '').trim();
+      const departmentCode = String(obj.departmentCode ?? '').trim();
+      if (!reportId || !categoryId || !roleCode || !departmentCode) return null;
+      const label = String(obj.label ?? `${roleCode} ${departmentCode}`).trim();
+      const mapping =
+        obj.columnMapping && typeof obj.columnMapping === 'object'
+          ? (obj.columnMapping as TechnicianReportColumnMapping)
+          : {};
+      return {
+        id: String(obj.id ?? `${roleCode}:${departmentCode}:${reportId}`).trim(),
+        label,
+        roleCode,
+        departmentCode,
+        categoryId,
+        reportId,
+        active: obj.active !== false,
+        columnMapping: mapping,
+      } satisfies TechnicianReportConfig;
+    })
+    .filter((r): r is TechnicianReportConfig => r != null);
+}
+
+function safeJson(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+export async function getTechnicianReportConfigs(): Promise<TechnicianReportConfig[]> {
+  const raw = await getConfig(TECHNICIAN_REPORT_CONFIG_KEY);
+  return parseTechnicianReportConfigs(raw);
+}
+
+export async function saveTechnicianReportConfigs(
+  configs: TechnicianReportConfig[],
+  opts: { updatedBy?: string } = {},
+): Promise<void> {
+  await db()
+    .insert(companyConfig)
+    .values({
+      configKey: TECHNICIAN_REPORT_CONFIG_KEY,
+      configValue: JSON.stringify(configs),
+      configType: 'json',
+      isSensitive: false,
+      updatedBy: opts.updatedBy,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: companyConfig.configKey,
+      set: {
+        configValue: JSON.stringify(configs),
+        configType: 'json',
+        isSensitive: false,
+        updatedAt: new Date(),
+        ...(opts.updatedBy ? { updatedBy: opts.updatedBy } : {}),
+      },
+    });
+  invalidateConfigCache();
+}
+
 // ─── Setup state ────────────────────────────────────────────────────────────
 
 export async function isSetupCompleted(): Promise<boolean> {

@@ -2,6 +2,8 @@
 
 import { useMemo } from 'react';
 import { useFinancial } from '@/lib/hooks/use-financial';
+import { useNewCustomers } from '@/lib/hooks/use-new-customers';
+import { usePipelineRevenue } from '@/lib/hooks/use-pipeline-revenue';
 import { useDashboardParams } from '@/lib/state/url-params';
 import { SectionHead } from '@/components/primitives/section-head';
 import { PeriodTabs } from '@/components/primitives/period-tabs';
@@ -18,6 +20,11 @@ import { PotentialRevenuePanel } from './potential-revenue-panel';
 export function FinancialView() {
   const [params, setParams] = useDashboardParams();
   const { data, isLoading, error, refetch } = useFinancial(params);
+  // Pipeline default is today → EOM regardless of which period is selected,
+  // so the number is always interpretable as "what this month could still
+  // add". (Could later pivot to follow the period.)
+  const { data: pipeline } = usePipelineRevenue();
+  const { data: newCustomers } = useNewCustomers(params);
 
   const compareOn = params.compare === 'ly' || params.compare === 'ly2';
   const compareYear: 'ly' | 'ly2' = params.compare === 'ly2' ? 'ly2' : 'ly';
@@ -84,10 +91,18 @@ export function FinancialView() {
           {compareOn && insights.length > 0 && (
             <CompareBanner insights={insights} mode={compareYear} />
           )}
-          <FinancialHero data={data} compareMode={params.compare} />
-          <FinancialKPIStrip data={data} compareMode={params.compare} />
+          <FinancialHero data={data} compareMode={params.compare} pipeline={pipeline} />
+          <FinancialKPIStrip
+            data={data}
+            compareMode={params.compare}
+            newCustomers={newCustomers}
+          />
           <div className="grid gap-6 grid-cols-1 xl:grid-cols-[minmax(0,2.4fr)_minmax(0,1fr)]">
-            <DepartmentTable data={data} compareMode={params.compare} />
+            <DepartmentTable
+              data={data}
+              compareMode={params.compare}
+              pipeline={pipeline}
+            />
             <PotentialRevenuePanel data={data} />
           </div>
         </>

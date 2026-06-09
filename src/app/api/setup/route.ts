@@ -8,6 +8,7 @@ import {
   markSetupCompleted,
   setManyConfig,
   setSetupStep,
+  saveTechnicianReportConfigs,
 } from '@/lib/config-service';
 
 export const runtime = 'nodejs';
@@ -42,7 +43,7 @@ export async function POST(req: NextRequest) {
   type Payload = {
     step?: number;
     stepName?: string;
-    data?: Record<string, string | number | boolean | null>;
+    data?: Record<string, unknown>;
     complete?: boolean;
   };
   let body: Payload;
@@ -55,8 +56,20 @@ export async function POST(req: NextRequest) {
   const step = typeof body.step === 'number' ? body.step : null;
   if (step == null) return NextResponse.json({ error: 'step required' }, { status: 400 });
 
-  const entries = Object.entries(body.data ?? {}).map(([key, value]) => ({ key, value }));
-  await setManyConfig(entries, { updatedBy: 'wizard' });
+  const rawEntries = Object.entries(body.data ?? {});
+  if (body.stepName === 'technician-reports') {
+    const reports = Array.isArray(body.data?.reports) ? body.data.reports : [];
+    await saveTechnicianReportConfigs(reports as Parameters<typeof saveTechnicianReportConfigs>[0], {
+      updatedBy: 'wizard',
+    });
+  } else {
+    const entries = rawEntries
+      .filter(([, value]) =>
+        value == null || ['string', 'number', 'boolean'].includes(typeof value),
+      )
+      .map(([key, value]) => ({ key, value: value as string | number | boolean | null }));
+    await setManyConfig(entries, { updatedBy: 'wizard' });
+  }
 
   // Bump setup_step to max(current, step + 1) so resuming respects manual progression.
   const current = await getSetupStep();
@@ -66,7 +79,7 @@ export async function POST(req: NextRequest) {
   if (body.complete) await markSetupCompleted();
 
   await logSetupStep(step, body.stepName ?? `step-${step}`, body.complete ? 'completed' : 'started', {
-    keys: entries.map((e) => e.key),
+    keys: rawEntries.map((e) => e[0]),
   });
 
   return NextResponse.json({ ok: true, step: next, completed: body.complete === true });

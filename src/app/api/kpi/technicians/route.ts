@@ -41,10 +41,59 @@ interface TechAgg {
   flipSalesCents: number;   // TotalLeadSales (cents)
 }
 
+function aggregateTechRows(rows: Array<typeof technicianPeriod.$inferSelect>): TechAgg[] {
+  const byEmp = new Map<number, TechAgg>();
+  for (const r of rows) {
+    const empId = Number(r.employeeId);
+    const revenue = Number(r.totalSalesCents);
+    const opps = Number(r.salesOpportunity);
+    const closed = Number(r.closedOpportunities);
+    const existing = byEmp.get(empId);
+    if (existing) {
+      existing.revenue += revenue;
+      existing.opps += opps;
+      existing.closed += closed;
+      existing.jobs += Number(r.completedJobs);
+      existing.members += Number(r.membershipsSold);
+      existing.flips += Number(r.leadsSet);
+      existing.flipSalesCents += Number(r.totalLeadSalesCents);
+      if (!existing.departmentCode && r.technicianBusinessUnit) existing.departmentCode = r.technicianBusinessUnit;
+      if (Number(r.totalJobAverageCents ?? 0) > existing.avgTicketCents) {
+        existing.avgTicketCents = Number(r.totalJobAverageCents ?? 0);
+      }
+      if (Number(r.optionsPerOpportunity ?? 0) > existing.options) {
+        existing.options = Number(r.optionsPerOpportunity ?? 0);
+      }
+    } else {
+      byEmp.set(empId, {
+        employeeId: empId,
+        employeeName: r.employeeName,
+        departmentCode: r.technicianBusinessUnit,
+        revenue,
+        opps,
+        closed,
+        avgCloseBps: 0,
+        avgSaleCents: 0,
+        avgTicketCents: Number(r.totalJobAverageCents ?? 0),
+        options: Number(r.optionsPerOpportunity ?? 0),
+        jobs: Number(r.completedJobs),
+        members: Number(r.membershipsSold),
+        flips: Number(r.leadsSet),
+        flipSalesCents: Number(r.totalLeadSalesCents),
+      });
+    }
+  }
+  for (const agg of byEmp.values()) {
+    agg.avgSaleCents = agg.closed > 0 ? Math.round(agg.revenue / agg.closed) : 0;
+    agg.avgCloseBps = agg.opps > 0 ? Math.round((agg.closed / agg.opps) * 10000) : 0;
+  }
+  return Array.from(byEmp.values());
+}
+
 /**
  * Map role_code → list of technicians. Pulls exactly matching
- * (role, period_start, period_end) rows. Returns empty if no sync has
- * run for that window yet.
+ * (role, period_start, period_end) rows. Multiple configured report
+ * instances can feed one role, so rows are merged by technician.
  */
 async function techsForWindow(roleCode: string, window: Window): Promise<TechAgg[]> {
   const database = db();
@@ -58,27 +107,24 @@ async function techsForWindow(roleCode: string, window: Window): Promise<TechAgg
         eq(technicianPeriod.periodEnd, window.to),
       ),
     );
-  return rows.map((r) => {
-    const opps = Number(r.salesOpportunity);
-    const closed = Number(r.closedOpportunities);
-    const revenue = Number(r.totalSalesCents);
-    return {
-      employeeId: Number(r.employeeId),
-      employeeName: r.employeeName,
-      departmentCode: r.technicianBusinessUnit,
-      revenue,
-      opps,
-      closed,
-      avgCloseBps: Number(r.closeRateBps ?? 0),
-      avgSaleCents: closed > 0 ? Math.round(revenue / closed) : 0,
-      avgTicketCents: Number(r.totalJobAverageCents ?? 0),
-      options: Number(r.optionsPerOpportunity ?? 0),
-      jobs: Number(r.completedJobs),
-      members: Number(r.membershipsSold),
-      flips: Number(r.leadsSet),
-      flipSalesCents: Number(r.totalLeadSalesCents),
-    };
-  });
+  return aggregateTechRows(rows);
+}
+
+/**
+ * Combined view across every role for a window.
+ */
+async function techsForWindowAllRoles(window: Window): Promise<TechAgg[]> {
+  const database = db();
+  const rows = await database
+    .select()
+    .from(technicianPeriod)
+    .where(
+      and(
+        eq(technicianPeriod.periodStart, window.from),
+        eq(technicianPeriod.periodEnd, window.to),
+      ),
+    );
+  return aggregateTechRows(rows);
 }
 
 function sortByRole(agg: TechAgg[], primary: Role['sortKey']): TechAgg[] {
@@ -102,12 +148,21 @@ export async function GET(req: NextRequest) {
     .select()
     .from(technicianRoles)
     .orderBy(asc(technicianRoles.sortOrder));
-  const roles: Role[] = roleRows.map((r) => ({
+  const ALL_ROLE: Role = {
+    code: 'all',
+    name: 'All Technicians',
+    primaryMetric: 'Total sales',
+    sortKey: 'revenue',
+  };
+  const realRoles: Role[] = roleRows.map((r) => ({
     code: r.code,
     name: r.name,
     primaryMetric: r.primaryMetricLabel,
     sortKey: r.primaryMetric as Role['sortKey'],
   }));
+  // ALL_ROLE is rendered separately by the sub-tab strip, so it gets
+  // prepended to the list the API ships.
+  const roles: Role[] = [ALL_ROLE, ...realRoles];
   const role = roles.find((r) => r.code === roleCode) ?? roles[0];
 
   const period = resolvePeriod({
@@ -116,10 +171,12 @@ export async function GET(req: NextRequest) {
     to: params.get('to'),
   });
 
+  const fetchWindow = (w: Window) =>
+    role.code === 'all' ? techsForWindowAllRoles(w) : techsForWindow(role.code, w);
   const [cur, ly, ly2] = await Promise.all([
-    techsForWindow(role.code, period.cur),
-    techsForWindow(role.code, period.ly),
-    techsForWindow(role.code, period.ly2),
+    fetchWindow(period.cur),
+    fetchWindow(period.ly),
+    fetchWindow(period.ly2),
   ]);
 
   const sorted = sortByRole(cur, role.sortKey);
@@ -161,7 +218,7 @@ export async function GET(req: NextRequest) {
       rank: i + 1,
       employeeId: t.employeeId,
       name: t.employeeName,
-      departmentCode: t.departmentCode ?? 'hvac',
+      departmentCode: t.departmentCode ?? 'hvac_maint_service',
       photoUrl: photosByNorm.get(normName(t.employeeName)) ?? null,
       revenue: t.revenue,
       ly: lyRow?.revenue,

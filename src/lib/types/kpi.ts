@@ -8,6 +8,13 @@ export interface CompareValue {
   unit: Unit;
 }
 
+export interface FinancialBusinessUnit {
+  id: number;
+  name: string;
+  revenue: CompareValue;
+  spark: number[];
+}
+
 export interface FinancialDepartment {
   code: string;
   name: string;
@@ -19,6 +26,7 @@ export interface FinancialDepartment {
   spark: number[];
   lySpark?: number[];
   ly2Spark?: number[];
+  businessUnits?: FinancialBusinessUnit[];
 }
 
 export interface FinancialTrendPoint {

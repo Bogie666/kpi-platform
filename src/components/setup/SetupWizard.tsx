@@ -18,13 +18,18 @@ import {
   type GoogleLocationDraft,
   type StepGoogleValues,
 } from './StepGoogleReviews';
+import {
+  StepTechnicianReports,
+  type StepTechnicianReportsValues,
+  type TechnicianReportConfigDraft,
+} from './StepTechnicianReports';
 
-const STEP_LABELS = ['Company', 'ServiceTitan', 'Divisions', 'Google reviews'];
+const STEP_LABELS = ['Company', 'ServiceTitan', 'Divisions', 'Technician reports', 'Google reviews'];
 
 interface SetupState {
   step: number;
   completed: boolean;
-  config: Record<string, string | number | boolean | null>;
+  config: Record<string, string | number | boolean | unknown | null>;
 }
 
 export function SetupWizard() {
@@ -43,7 +48,7 @@ export function SetupWizard() {
       if (!res.ok) throw new Error(`Failed to load setup state: ${res.status}`);
       const s = (await res.json()) as SetupState;
       setState(s);
-      setActiveStep(Math.min(s.step, 4));
+      setActiveStep(Math.min(s.step, 5));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -61,7 +66,7 @@ export function SetupWizard() {
       const j = (await res.json()) as { ok?: boolean; error?: string; step?: number; completed?: boolean };
       if (!j.ok) throw new Error(j.error ?? `Failed (${res.status})`);
       await load();
-      setActiveStep(Math.min(step + 1, 4));
+      setActiveStep(Math.min(step + 1, 5));
       // On completion, stay on this page and surface the "all done" panel
       // with a "Sync now" affordance — the user can kick off the first
       // sync without waiting up to 15 minutes for the cron tick.
@@ -80,7 +85,7 @@ export function SetupWizard() {
 
   return (
     <div className="flex flex-col gap-6 max-w-5xl">
-      <Stepper active={activeStep} furthest={Math.min(state.step, 4)} onJump={setActiveStep} />
+      <Stepper active={activeStep} furthest={Math.min(state.step, 5)} onJump={setActiveStep} />
 
       {error && (
         <div className="text-[12px] text-down bg-down-bg border border-down/30 rounded-btn px-3 py-2">
@@ -157,6 +162,20 @@ export function SetupWizard() {
       )}
 
       {activeStep === 4 && (
+        <TechnicianReportsStepLoader
+          saving={saving}
+          initialReports={Array.isArray(cfg.technician_report_configs) ? (cfg.technician_report_configs as TechnicianReportConfigDraft[]) : []}
+          onSave={async (payload: StepTechnicianReportsValues) => {
+            await postStep(
+              4,
+              'technician-reports',
+              { reports: payload.reports, skip: payload.skip } as unknown as Record<string, unknown>,
+            );
+          }}
+        />
+      )}
+
+      {activeStep === 5 && (
         <StepGoogleReviews
           saving={saving}
           initialCreds={{
@@ -183,7 +202,7 @@ export function SetupWizard() {
                 if (!lj.ok) throw new Error(lj.error ?? 'Failed to save locations');
               }
               await postStep(
-                4,
+                5,
                 'google-reviews',
                 payload.skip ? {} : (payload.creds as unknown as Record<string, unknown>),
                 true,
@@ -306,3 +325,38 @@ function DivisionsStepLoader({
     />
   );
 }
+function TechnicianReportsStepLoader({
+  saving,
+  initialReports,
+  onSave,
+}: {
+  saving: boolean;
+  initialReports: TechnicianReportConfigDraft[];
+  onSave: (p: StepTechnicianReportsValues) => void | Promise<void>;
+}) {
+  const [divisions, setDivisions] = useState<Array<{ code: string; name: string }> | null>(null);
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  async function load() {
+    const res = await fetch('/api/config');
+    const j = (await res.json()) as {
+      divisions?: Array<{ code: string; name: string; active: boolean }>;
+    };
+    setDivisions((j.divisions ?? []).filter((d) => d.active).map((d) => ({ code: d.code, name: d.name })));
+  }
+
+  if (!divisions) return <div className="text-[13px] text-muted">Loading…</div>;
+
+  return (
+    <StepTechnicianReports
+      saving={saving}
+      initialReports={initialReports}
+      divisions={divisions}
+      onSave={onSave}
+    />
+  );
+}
+

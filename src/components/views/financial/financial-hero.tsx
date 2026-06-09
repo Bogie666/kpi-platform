@@ -9,10 +9,12 @@ import { fmtMoney } from '@/lib/format/money';
 import { fmtPercent } from '@/lib/format/percent';
 import type { FinancialResponse } from '@/lib/types/kpi';
 import type { CompareMode } from '@/lib/state/url-params';
+import type { PipelineRevenueResponse } from '@/app/api/kpi/pipeline-revenue/route';
 
 export interface FinancialHeroProps {
   data: FinancialResponse;
   compareMode: CompareMode;
+  pipeline?: PipelineRevenueResponse;
 }
 
 function compareModeToStat(m: CompareMode): 'prev' | 'ly' | 'ly2' | 'none' {
@@ -22,7 +24,7 @@ function compareModeToStat(m: CompareMode): 'prev' | 'ly' | 'ly2' | 'none' {
   return 'prev';
 }
 
-export function FinancialHero({ data, compareMode }: FinancialHeroProps) {
+export function FinancialHero({ data, compareMode, pipeline }: FinancialHeroProps) {
   const { total, trend } = data;
   const compareOn = compareMode === 'ly' || compareMode === 'ly2';
   const compareYear: 'ly' | 'ly2' = compareMode === 'ly2' ? 'ly2' : 'ly';
@@ -39,21 +41,39 @@ export function FinancialHero({ data, compareMode }: FinancialHeroProps) {
       : data.meta.period === 'QTD'
         ? 'Quarter goal'
         : 'Monthly goal';
+  // Pipeline = won estimates on jobs scheduled in the next 30 days but not
+  // yet invoiced. Show as a quiet second line under the daily-pace meta —
+  // big number stays actual revenue, pipeline doesn't compete for primacy.
+  const pipelineCents = pipeline?.totalCents ?? 0;
+  const showPipeline = pipelineCents > 0;
+  const combinedCents = total.revenue.value + pipelineCents;
+
   const subMeta = (
-    <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono tabular-nums">
-      <span>
-        {fmtPercent(total.percentToGoal)} of {fmtMoney(total.target)} daily pace ·{' '}
-        {data.meta.period}
+    <div className="flex flex-col gap-0.5">
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono tabular-nums">
+        <span>
+          {fmtPercent(total.percentToGoal)} of {fmtMoney(total.target)} daily pace ·{' '}
+          {data.meta.period}
+        </span>
+        {showFullPeriod && (
+          <>
+            <span aria-hidden="true" className="h-1 w-1 rounded-full bg-border" />
+            <span className="text-muted">
+              {fullPeriodLabel}: {fmtMoney(fullTarget)}
+            </span>
+          </>
+        )}
       </span>
-      {showFullPeriod && (
-        <>
-          <span aria-hidden="true" className="h-1 w-1 rounded-full bg-border" />
-          <span className="text-muted">
-            {fullPeriodLabel}: {fmtMoney(fullTarget)}
-          </span>
-        </>
+      {showPipeline && (
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-mono tabular-nums text-[12px] text-muted">
+          <span className="text-up" aria-hidden="true">+</span>
+          <span className="text-up font-medium">{fmtMoney(pipelineCents)} pipeline</span>
+          <span aria-hidden="true" className="text-muted/50">→</span>
+          <span className="text-text/80">{fmtMoney(combinedCents)} projected</span>
+          <span className="text-muted/60 text-[11px]">(scheduled work, through EOM)</span>
+        </span>
       )}
-    </span>
+    </div>
   );
 
   // X-axis label strategy: short windows show day-of-month; long windows

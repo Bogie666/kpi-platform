@@ -189,6 +189,7 @@ export const technicianPeriod = pgTable(
       t.periodStart,
       t.periodEnd,
       t.employeeId,
+      t.sourceReportId,
     ),
     roleIdx: index('tech_period_role_idx').on(t.roleCode),
     periodIdx: index('tech_period_period_idx').on(t.periodStart, t.periodEnd),

@@ -29,6 +29,20 @@
       "when": 1779430119567,
       "tag": "0003_add_division_default_role",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1780974666984,
+      "tag": "0004_add_kpi_cache",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1780974726073,
+      "tag": "0005_technician_report_config_unique",
+      "breakpoints": true
     }
   ]
 }
