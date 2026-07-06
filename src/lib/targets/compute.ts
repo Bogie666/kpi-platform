@@ -8,6 +8,13 @@
  *   daily_target      = remaining_budget / remaining workdays (incl. today)
  *   jobs_needed_today = daily_target / trailing revenue-per-job-run
  *
+ * Stable-frame rule: every input is taken as of start-of-business today —
+ * MTD runs through *yesterday* and today's board keeps completed (done)
+ * appointments — so the daily target holds still all day instead of sagging
+ * as today's own production lands. Revenue invoiced today arrives separately
+ * (`todayRevenueCents`) and reads as progress *against* the target, never as
+ * a reduction *of* it.
+ *
  * Backlog crediting is toggleable (`creditBacklog`, default on): backlog
  * isn't guaranteed revenue until invoiced, so the strict variant ignores it
  * to keep daily pressure up — useful when sold work makes departments coast.
@@ -64,7 +71,10 @@ export interface DivisionInput {
   name: string;
   colorToken: string;
   monthlyBudgetCents: number;
+  /** Completed revenue month-start → yesterday (stable all day). */
   mtdRevenueCents: number;
+  /** Revenue invoiced today so far — progress toward today's target. */
+  todayRevenueCents?: number;
   /** Sold-but-not-completed revenue scheduled within the current month. */
   backlogCents: number;
   trailing: {
@@ -95,12 +105,18 @@ export interface DailyTargetRow {
   name: string;
   colorToken: string;
   monthlyBudgetCents: number;
+  /** Completed revenue month-start → yesterday (stable all day). */
   mtdRevenueCents: number;
+  /** Revenue invoiced today so far — progress toward today's target. */
+  todayRevenueCents: number;
   backlogCents: number;
   /** Can be negative when MTD (+ credited backlog) already exceeds budget. */
   remainingBudgetCents: number;
-  /** Per-remaining-workday revenue needed; floored at 0. */
+  /** Per-remaining-workday revenue needed; floored at 0. Holds still all
+   *  day — compare `todayRevenueCents` against it for progress. */
   dailyTargetCents: number;
+  /** Daily target minus today's invoiced revenue; floored at 0. */
+  remainingTodayCents: number;
   /** Blended trailing revenue per completed job run. */
   revenuePerJobCents: number | null;
   /** dailyTarget / revenuePerJob, rounded up. null when no trailing rate. */
@@ -168,9 +184,11 @@ export function computeDailyTargets(
   return divisions.map((d) => {
     const flags: string[] = [...(d.extraFlags ?? [])];
     const budget = d.monthlyBudgetCents;
+    const todayRevenue = d.todayRevenueCents ?? 0;
     const remainingBudget =
       budget - d.mtdRevenueCents - (creditBacklog ? d.backlogCents : 0);
     const dailyTarget = Math.max(Math.round(remainingBudget / remainingDays), 0);
+    const remainingToday = Math.max(dailyTarget - todayRevenue, 0);
 
     const blendedRate = d.trailing.blended.revenuePerJobCents;
     const jobsNeededToday =
@@ -274,9 +292,11 @@ export function computeDailyTargets(
       colorToken: d.colorToken,
       monthlyBudgetCents: budget,
       mtdRevenueCents: d.mtdRevenueCents,
+      todayRevenueCents: todayRevenue,
       backlogCents: d.backlogCents,
       remainingBudgetCents: remainingBudget,
       dailyTargetCents: dailyTarget,
+      remainingTodayCents: remainingToday,
       revenuePerJobCents: blendedRate,
       jobsNeededToday,
       maintScheduledToday: d.todaySchedule.maintenance,

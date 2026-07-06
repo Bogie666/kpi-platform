@@ -76,6 +76,26 @@ test('calls short = gap left after the booked demand board', () => {
   assert.equal(row.demandCallsShort, 2);
 });
 
+test("today's revenue reads as progress, never a reduction of today's target", () => {
+  const [row] = computeDailyTargets(
+    [division({ todayRevenueCents: 2_000_00 })],
+    midMonth,
+  );
+  // The target holds still regardless of intraday production…
+  assert.equal(row.dailyTargetCents, 5_000_00);
+  // …and today's invoiced revenue counts toward it.
+  assert.equal(row.todayRevenueCents, 2_000_00);
+  assert.equal(row.remainingTodayCents, 3_000_00);
+
+  // Over-producing floors remaining-today at zero without touching the target.
+  const [ahead] = computeDailyTargets(
+    [division({ todayRevenueCents: 7_000_00 })],
+    midMonth,
+  );
+  assert.equal(ahead.dailyTargetCents, 5_000_00);
+  assert.equal(ahead.remainingTodayCents, 0);
+});
+
 test('creditBacklog: false ignores backlog and raises the daily target', () => {
   const [row] = computeDailyTargets([division()], midMonth, { creditBacklog: false });
   // remaining = 100k − 40k MTD = 60k; the 10k backlog is not credited.

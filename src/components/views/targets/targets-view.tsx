@@ -14,6 +14,7 @@ import { fmtMoney } from '@/lib/format/money';
 import { cn } from '@/lib/cn';
 import type { DailyTargetRow } from '@/lib/targets/compute';
 import type { TrailingSource, PaceStatus } from '@/lib/targets/compute';
+import type { MonthProjection } from '@/lib/targets/projection';
 
 const STATUS_TONE: Record<PaceStatus, PillTone> = {
   ahead: 'up',
@@ -36,7 +37,7 @@ export function TargetsView() {
   // Both variants come precomputed in the payload, so toggling is instant.
   const view = data
     ? creditBacklog
-      ? { totals: data.totals, divisions: data.divisions }
+      ? { totals: data.totals, divisions: data.divisions, projection: data.projection }
       : data.withoutBacklog
     : null;
 
@@ -115,7 +116,14 @@ export function TargetsView() {
                 label="Daily target — all divisions"
                 value={view.totals.dailyTargetCents}
                 unit="cents"
-                sub="revenue needed today to stay on budget"
+                sub={
+                  view.totals.todayCents > 0
+                    ? `${fmtMoney(view.totals.todayCents)} invoiced today (${Math.min(
+                        Math.round((view.totals.todayCents / Math.max(view.totals.dailyTargetCents, 1)) * 100),
+                        999,
+                      )}% of target)`
+                    : 'revenue needed today to stay on budget'
+                }
               />
             </Panel>
             <Panel padding="tight">
@@ -132,12 +140,12 @@ export function TargetsView() {
             </Panel>
             <Panel padding="tight">
               <Stat
-                label="MTD revenue"
+                label="MTD revenue — thru yesterday"
                 value={view.totals.mtdCents}
                 unit="cents"
                 sub={
                   view.totals.budgetCents > 0
-                    ? `${Math.round((view.totals.mtdCents / view.totals.budgetCents) * 100)}% of ${fmtMoney(view.totals.budgetCents)} budget`
+                    ? `${Math.round((view.totals.mtdCents / view.totals.budgetCents) * 100)}% of ${fmtMoney(view.totals.budgetCents)} budget · today counts toward today's target`
                     : 'no budget set'
                 }
               />
@@ -176,9 +184,18 @@ export function TargetsView() {
 
           <TargetsTable rows={view.divisions} creditBacklog={creditBacklog} />
 
+          <ProjectionPanel
+            projection={view.projection}
+            budgetCents={view.totals.budgetCents}
+            todayIso={data.date}
+            creditBacklog={creditBacklog}
+          />
+
           <p className="text-[12px] text-muted leading-relaxed">
-            Daily target = (budget − MTD{creditBacklog ? ' − scheduled backlog' : ''}) ÷
-            remaining weekday workdays.{' '}
+            Daily target = (budget − MTD thru yesterday
+            {creditBacklog ? ' − scheduled backlog' : ''}) ÷ remaining weekday
+            workdays — held fixed through the day, with revenue invoiced today
+            shown as progress against it.{' '}
             {creditBacklog
               ? 'Backlog is credited because it is already sold and scheduled this month.'
               : 'Backlog is shown for context but not credited — it isn’t revenue until it’s invoiced.'}{' '}
@@ -275,7 +292,7 @@ function TargetsTable({
                 Budget
               </HeaderTh>
               <HeaderTh
-                tip="Completed revenue invoiced this month so far."
+                tip="Completed revenue month-start through yesterday. Today's invoices show under Daily target as progress instead."
                 className="hidden md:table-cell"
               >
                 MTD
@@ -300,7 +317,7 @@ function TargetsTable({
               >
                 Backlog
               </HeaderTh>
-              <HeaderTh tip="Remaining budget ÷ remaining weekday workdays (incl. today, minus holidays).">
+              <HeaderTh tip="Remaining budget ÷ remaining weekday workdays (incl. today, minus holidays). Fixed for the day — the line under it is revenue invoiced today.">
                 Daily target
               </HeaderTh>
               <HeaderTh
@@ -393,6 +410,18 @@ function TargetsTable({
                       </td>
                       <td className="py-3 pr-4 text-right font-mono tabular-nums text-[14px]">
                         {fmtMoney(r.dailyTargetCents)}
+                        {r.todayRevenueCents > 0 && (
+                          <div
+                            className={cn(
+                              'text-[11px]',
+                              r.dailyTargetCents > 0 && r.todayRevenueCents >= r.dailyTargetCents
+                                ? 'text-up'
+                                : 'text-muted',
+                            )}
+                          >
+                            {fmtMoney(r.todayRevenueCents)} today
+                          </div>
+                        )}
                       </td>
                       <td className="py-3 pr-4 text-right font-mono tabular-nums text-[14px] hidden sm:table-cell">
                         {r.jobsNeededToday ?? '—'}
@@ -480,6 +509,14 @@ function RowDetail({ row }: { row: DailyTargetRow }) {
         <DetailItem
           label="Demand calls needed (gross)"
           value={row.demandCallsNeeded != null ? String(row.demandCallsNeeded) : '—'}
+        />
+        <DetailItem
+          label="Invoiced today"
+          value={
+            row.todayRevenueCents > 0
+              ? `${fmtMoney(row.todayRevenueCents)} of ${fmtMoney(row.dailyTargetCents)} target`
+              : '—'
+          }
         />
         <DetailItem
           label="Pace vs budget"
@@ -607,5 +644,131 @@ function RowPair({ row, detail }: { row: React.ReactNode; detail: React.ReactNod
       {row}
       {detail}
     </>
+  );
+}
+
+function fmtProjDate(iso: string): string {
+  // Noon UTC keeps the calendar date stable when formatted in UTC.
+  return new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+/**
+ * Static remainder-of-month view: one row per remaining workday with the
+ * estimated daily target if production continues at the month's actual
+ * pace so far. Company-wide; a morning snapshot that doesn't drift intraday.
+ */
+function ProjectionPanel({
+  projection,
+  budgetCents,
+  todayIso,
+  creditBacklog,
+}: {
+  projection: MonthProjection | null;
+  budgetCents: number;
+  todayIso: string;
+  creditBacklog: boolean;
+}) {
+  if (!projection) {
+    return (
+      <Panel eyebrow="Remainder of month" title="Daily targets at current pace" padding="cozy">
+        <p className="text-[13px] text-muted">
+          No workdays have elapsed this month yet, so there&apos;s no observed pace to
+          project from. This view fills in after the first working day closes.
+        </p>
+      </Panel>
+    );
+  }
+
+  const onTrack = projection.varianceCents >= 0;
+  return (
+    <Panel eyebrow="Remainder of month" title="Daily targets at current pace" padding="cozy">
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-[13px]">
+          <span>
+            <span className="text-muted">Current pace </span>
+            <span className="font-mono tabular-nums font-medium">
+              {fmtMoney(projection.paceCentsPerWorkday)}/workday
+            </span>
+          </span>
+          <span>
+            <span className="text-muted">Projected finish </span>
+            <span className="font-mono tabular-nums font-medium">
+              {fmtMoney(projection.projectedMonthEndCents)}
+            </span>
+            <span className={cn('font-mono tabular-nums', onTrack ? 'text-up' : 'text-down')}>
+              {' '}
+              ({onTrack ? '+' : '−'}
+              {fmtMoney(Math.abs(projection.varianceCents))} vs {fmtMoney(budgetCents)} budget)
+            </span>
+          </span>
+        </div>
+
+        {projection.days.length > 0 && (
+          <div className="overflow-x-auto -mx-2 px-2">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="col-head border-b border-border">
+                  <th className="py-2 pr-4 font-normal text-left">Workday</th>
+                  <th className="py-2 pr-4 font-normal text-right">Est. daily target</th>
+                  <th className="py-2 pr-4 font-normal text-right hidden sm:table-cell">
+                    Projected MTD entering day
+                  </th>
+                  <th className="py-2 font-normal text-right hidden md:table-cell">
+                    % of budget
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {projection.days.map((d) => {
+                  const isToday = d.date === todayIso;
+                  return (
+                    <tr
+                      key={d.date}
+                      className={cn(
+                        'border-b border-border/40',
+                        isToday && 'bg-surface-2/25 font-medium',
+                      )}
+                    >
+                      <td className="py-2 pr-4 text-[13px]">
+                        {fmtProjDate(d.date)}
+                        {isToday && <span className="text-muted text-[11px]"> · today</span>}
+                      </td>
+                      <td className="py-2 pr-4 text-right font-mono tabular-nums text-[13px]">
+                        {fmtMoney(d.dailyTargetCents)}
+                      </td>
+                      <td className="py-2 pr-4 text-right font-mono tabular-nums text-[13px] text-muted hidden sm:table-cell">
+                        {fmtMoney(d.projectedMtdCents)}
+                      </td>
+                      <td className="py-2 text-right font-mono tabular-nums text-[13px] text-muted hidden md:table-cell">
+                        {budgetCents > 0
+                          ? `${Math.round((d.projectedMtdCents / budgetCents) * 100)}%`
+                          : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <p className="text-[12px] text-muted leading-relaxed">
+          A static morning snapshot: pace = MTD completed revenue (thru yesterday) ÷
+          elapsed workdays. Each day&apos;s estimated target assumes every prior
+          remaining day produces exactly that pace, so targets climb if the pace is
+          under the required run rate and shrink if it&apos;s over.
+          {creditBacklog
+            ? ' Scheduled backlog is credited against the remaining budget, matching the view above.'
+            : ' Backlog is not credited, matching the strict view above.'}{' '}
+          Projected finish ignores backlog and today&apos;s partial production —
+          it&apos;s purely pace × remaining workdays.
+        </p>
+      </div>
+    </Panel>
   );
 }

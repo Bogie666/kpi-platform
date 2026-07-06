@@ -6,11 +6,18 @@
  *   - Monthly budget: `targets` rows (metric=revenue, scope=department),
  *     prorated by day-overlap with the current month so quarterly/annual
  *     rows still contribute sensibly.
- *   - MTD completed revenue: `financial_daily` summed month-start → today.
- *   - Scheduled backlog: won estimates attached to jobs with active
- *     appointments today → month-end (same join as /api/kpi/pipeline-revenue:
+ *   - MTD completed revenue: `financial_daily` summed month-start →
+ *     *yesterday*. Today's invoices land in `todayRevenueCents` instead, so
+ *     the daily target holds still all day and today's production reads as
+ *     progress toward it rather than eroding it (see compute.ts's
+ *     stable-frame rule).
+ *   - Scheduled backlog: won estimates attached to jobs with appointments
+ *     today → month-end (same join as /api/kpi/pipeline-revenue:
  *     job.createdFromEstimateId → estimate_analysis 'won' rows). Backlog
- *     scheduled past month-end is intentionally excluded.
+ *     scheduled past month-end is intentionally excluded. Appointments that
+ *     finished earlier today stay counted — they leave backlog only when
+ *     their revenue rolls into MTD tomorrow — so backlog and today's board
+ *     don't decay through the afternoon.
  *   - Trailing rev/job: `financial_daily` at BU grain over the last 30 full
  *     days, split into maintenance / demand / install source classes by BU
  *     name. Falls back to 90 days when the 30-day sample is thin.
@@ -37,6 +44,7 @@ import { getBusinessTz, localDayStartUTC, localTodayISO, shiftISO } from '@/lib/
 import { isMergedAwayDivision, mergeDivisionCode, divisionDisplayName } from '@/lib/divisions';
 import { loadDivisionModel } from '@/lib/config-service';
 import { monthCalendarContext, type MonthCalendarContext } from '@/lib/targets/calendar';
+import { projectMonthAtCurrentPace, type MonthProjection } from '@/lib/targets/projection';
 import {
   computeDailyTargets,
   type DailyTargetRow,
@@ -47,7 +55,10 @@ import {
 
 export interface DailyTargetsTotals {
   budgetCents: number;
+  /** Completed revenue month-start → yesterday (stable all day). */
   mtdCents: number;
+  /** Revenue invoiced today so far — progress toward today's target. */
+  todayCents: number;
   backlogCents: number;
   remainingBudgetCents: number;
   dailyTargetCents: number;
@@ -74,10 +85,14 @@ export interface DailyTargetsResult {
   /** Null when the Capacity API is unavailable (missing Dispatch scope). */
   capacityTotals: DailyTargetsCapacityTotals | null;
   divisions: DailyTargetRow[];
+  /** Company-wide remainder-of-month targets at the pace run so far this
+   *  month. Null before the month's first workday has elapsed. */
+  projection: MonthProjection | null;
   /** Strict variant: backlog ignored (it isn't revenue until invoiced). */
   withoutBacklog: {
     totals: DailyTargetsTotals;
     divisions: DailyTargetRow[];
+    projection: MonthProjection | null;
   };
 }
 
@@ -226,7 +241,7 @@ async function computeDailyTargetsLive(todayIso: string): Promise<DailyTargetsRe
       .where(and(gte(financialDaily.reportDate, from), lte(financialDaily.reportDate, yesterday)))
       .groupBy(financialDaily.businessUnitId, financialDaily.departmentCode);
 
-  const [deptList, buList, budgetRows, mtdRows, t30Rows, t90Rows] = await Promise.all([
+  const [deptList, buList, budgetRows, mtdRows, todayRows, t30Rows, t90Rows] = await Promise.all([
     database
       .select()
       .from(departments)
@@ -250,6 +265,8 @@ async function computeDailyTargetsLive(todayIso: string): Promise<DailyTargetsRe
           gte(targets.effectiveTo, cal.monthStart),
         ),
       ),
+    // MTD stops at yesterday — today's invoices are read separately below so
+    // intraday production doesn't erode today's own target (stable frame).
     database
       .select({
         departmentCode: financialDaily.departmentCode,
@@ -259,9 +276,17 @@ async function computeDailyTargetsLive(todayIso: string): Promise<DailyTargetsRe
       .where(
         and(
           gte(financialDaily.reportDate, cal.monthStart),
-          lte(financialDaily.reportDate, todayIso),
+          lte(financialDaily.reportDate, yesterday),
         ),
       )
+      .groupBy(financialDaily.departmentCode),
+    database
+      .select({
+        departmentCode: financialDaily.departmentCode,
+        revenueCents: sql<number>`COALESCE(SUM(${financialDaily.totalRevenueCents}), 0)`,
+      })
+      .from(financialDaily)
+      .where(eq(financialDaily.reportDate, todayIso))
       .groupBy(financialDaily.departmentCode),
     trailingByBu(t30From),
     trailingByBu(t90From),
@@ -290,6 +315,13 @@ async function computeDailyTargetsLive(todayIso: string): Promise<DailyTargetsRe
     const code = canonicalDept(r.departmentCode);
     if (!code) continue;
     mtdByDept.set(code, (mtdByDept.get(code) ?? 0) + Number(r.revenueCents));
+  }
+
+  const todayByDept = new Map<string, number>();
+  for (const r of todayRows) {
+    const code = canonicalDept(r.departmentCode);
+    if (!code) continue;
+    todayByDept.set(code, (todayByDept.get(code) ?? 0) + Number(r.revenueCents));
   }
 
   // Trailing aggregates: blended per division (every row, including legacy
@@ -383,10 +415,14 @@ async function computeDailyTargetsLive(todayIso: string): Promise<DailyTargetsRe
       ),
     }),
   ]);
+  // Keep 'done' appointments: dropping them made today's board and backlog
+  // decay through the afternoon as jobs finished (their revenue takes a sync
+  // cycle to reach financial_daily, and MTD only absorbs it tomorrow). A
+  // completed appointment was still scheduled today — only genuinely
+  // canceled/unused slots leave the frame.
   const active = appts.filter((a) => {
     if (a.active === false || a.unused === true) return false;
-    const status = (a.status ?? '').toLowerCase();
-    return status !== 'canceled' && status !== 'done';
+    return (a.status ?? '').toLowerCase() !== 'canceled';
   });
 
   const jobIds = Array.from(
@@ -522,6 +558,7 @@ async function computeDailyTargetsLive(todayIso: string): Promise<DailyTargetsRe
       colorToken: d.colorToken,
       monthlyBudgetCents: Math.round(budgetByDept.get(d.code) ?? 0),
       mtdRevenueCents: mtdByDept.get(d.code) ?? 0,
+      todayRevenueCents: todayByDept.get(d.code) ?? 0,
       backlogCents: backlogByDept.get(d.code) ?? 0,
       trailing: {
         blended: trailingFor(d.code, null),
@@ -570,6 +607,7 @@ async function computeDailyTargetsLive(todayIso: string): Promise<DailyTargetsRe
       if (code === SALES_FEEDER.defaultInto) {
         into.monthlyBudgetCents += from.monthlyBudgetCents;
         into.mtdRevenueCents += from.mtdRevenueCents;
+        into.todayRevenueCents = (into.todayRevenueCents ?? 0) + (from.todayRevenueCents ?? 0);
         into.backlogCents += from.backlogCents;
       }
       into.todaySchedule = {
@@ -595,13 +633,16 @@ async function computeDailyTargetsLive(todayIso: string): Promise<DailyTargetsRe
   }
 
   // Quiet divisions with no budget and no revenue stay out of the table.
-  const inputs = allInputs.filter((d) => d.monthlyBudgetCents > 0 || d.mtdRevenueCents > 0);
+  const inputs = allInputs.filter(
+    (d) => d.monthlyBudgetCents > 0 || d.mtdRevenueCents > 0 || (d.todayRevenueCents ?? 0) > 0,
+  );
 
   const totalsFor = (rows: DailyTargetRow[]) =>
     rows.reduce(
       (acc, r) => {
         acc.budgetCents += r.monthlyBudgetCents;
         acc.mtdCents += r.mtdRevenueCents;
+        acc.todayCents += r.todayRevenueCents;
         acc.backlogCents += r.backlogCents;
         acc.remainingBudgetCents += r.remainingBudgetCents;
         acc.dailyTargetCents += r.dailyTargetCents;
@@ -610,6 +651,7 @@ async function computeDailyTargetsLive(todayIso: string): Promise<DailyTargetsRe
       {
         budgetCents: 0,
         mtdCents: 0,
+        todayCents: 0,
         backlogCents: 0,
         remainingBudgetCents: 0,
         dailyTargetCents: 0,
@@ -619,6 +661,19 @@ async function computeDailyTargetsLive(todayIso: string): Promise<DailyTargetsRe
 
   const rows = computeDailyTargets(inputs, cal);
   const strictRows = computeDailyTargets(inputs, cal, { creditBacklog: false });
+  const totals = totalsFor(rows);
+  const strictTotals = totalsFor(strictRows);
+
+  const projectionFor = (t: DailyTargetsTotals, creditedBacklogCents: number) =>
+    projectMonthAtCurrentPace({
+      budgetCents: t.budgetCents,
+      mtdCents: t.mtdCents,
+      creditedBacklogCents,
+      todayIso,
+      monthEnd: cal.monthEnd,
+      elapsedWorkdays: cal.elapsedWorkdays,
+      remainingWorkdays: cal.remainingWorkdays,
+    });
 
   const capacityTotals: DailyTargetsCapacityTotals | null = capacitySnapshot
     ? {
@@ -644,12 +699,14 @@ async function computeDailyTargetsLive(todayIso: string): Promise<DailyTargetsRe
     asOf: new Date().toISOString(),
     date: todayIso,
     calendar: cal,
-    totals: totalsFor(rows),
+    totals,
     capacityTotals,
     divisions: rows,
+    projection: projectionFor(totals, totals.backlogCents),
     withoutBacklog: {
-      totals: totalsFor(strictRows),
+      totals: strictTotals,
       divisions: strictRows,
+      projection: projectionFor(strictTotals, 0),
     },
   };
 }
@@ -659,7 +716,7 @@ async function computeDailyTargetsLive(todayIso: string): Promise<DailyTargetsRe
  * outlives deploys, so without a versioned key a fresh deploy can serve an
  * old-shape payload (missing fields render as dashes) until the TTL expires.
  */
-const PAYLOAD_VERSION = 7;
+const PAYLOAD_VERSION = 8;
 
 /**
  * Cached read. Returns the memoized payload when fresh (< maxAgeMin), else
