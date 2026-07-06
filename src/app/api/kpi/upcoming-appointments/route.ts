@@ -49,7 +49,7 @@ export interface UpcomingAppointmentsResponse {
       name: string;
       count: number;
     }>;
-    topJobTypes: Array<{ name: string; count: number }>;
+    topJobTypes: Array<{ name: string; count: number; dept: string | null }>;
     /** Per-business-unit breakdown for the expansion view, so LEX
      *  Maintenance and LYONS Maintenance show as distinct rows even
      *  though they share the `hvac_maintenance` dept code. */
@@ -60,8 +60,9 @@ export interface UpcomingAppointmentsResponse {
       jobTypes: Array<{ name: string; count: number }>;
     }>;
   }>;
-  /** Top job types across all depts. */
-  topJobTypes: Array<{ name: string; count: number }>;
+  /** Top job types across all depts. `dept` = majority division for the
+   *  type — drives per-trade coloring on the TV drill-down panel. */
+  topJobTypes: Array<{ name: string; count: number; dept: string | null }>;
   groups: Array<{
     departmentCode: string | null;
     departmentName: string | null;
@@ -155,10 +156,10 @@ export async function GET() {
   // Local shape mirrors the prior inline map ({ code, name }) so downstream
   // consumers (the grouping loop below) don't need to change.
   const buNameById = new Map(buNameRows.map((r) => [r.id, r.name]));
-  const buToDept = new Map<number, { code: string | null; name: string }>();
+  const buToDept = new Map<number, { code: string | null; name: string; divName: string | null }>();
   for (const [id, name] of buNameById) {
     const div = divisionByBu.get(id);
-    buToDept.set(id, { code: div?.code ?? null, name });
+    buToDept.set(id, { code: div?.code ?? null, name, divName: div?.name ?? null });
   }
 
   // 3. Pull just the jobs we need, in chunks. ST supports `ids` filter
@@ -199,6 +200,9 @@ export async function GET() {
   };
   const perDay = new Map<string, DailyBreakdown>();
   const typeTotals = new Map<string, number>();
+  // Division votes per job-type name. A type effectively belongs to one
+  // division; majority vote absorbs the odd cross-booked job.
+  const typeDeptVotes = new Map<string, Map<string, number>>();
   const tomorrow = shiftDate(today, 1);
 
   for (const a of active) {
@@ -207,7 +211,12 @@ export async function GET() {
     if (!job) continue;
     const bu = job.businessUnitId ? buToDept.get(job.businessUnitId) : null;
     const deptKey = bu?.code ?? '__uncategorized__';
-    const deptName = bu?.name ?? 'Uncategorized';
+    const buName = bu?.name ?? 'Uncategorized';
+    // Division buckets aggregate every BU sharing the code, so they must
+    // carry the division's display name — labeling them with the first
+    // BU seen made the bar read "LEX Maintenance: 67" for the whole
+    // division while the per-BU dropdown showed LEX alone at 26.
+    const deptName = bu?.divName ?? buName;
     const buKey = job.businessUnitId != null ? `bu:${job.businessUnitId}` : '__uncategorized__';
     const typeName = job.jobTypeId
       ? typeNames.get(job.jobTypeId) ?? `type#${job.jobTypeId}`
@@ -248,7 +257,7 @@ export async function GET() {
     daily.types.set(typeName, (daily.types.get(typeName) ?? 0) + 1);
     const dailyBu = daily.bus.get(buKey) ?? {
       departmentCode: bu?.code ?? null,
-      name: deptName,
+      name: buName,
       total: 0,
       types: new Map(),
     };
@@ -258,7 +267,26 @@ export async function GET() {
     perDay.set(day, daily);
 
     typeTotals.set(typeName, (typeTotals.get(typeName) ?? 0) + 1);
+    if (bu?.code) {
+      const votes = typeDeptVotes.get(typeName) ?? new Map<string, number>();
+      votes.set(bu.code, (votes.get(bu.code) ?? 0) + 1);
+      typeDeptVotes.set(typeName, votes);
+    }
   }
+
+  const deptForType = (name: string): string | null => {
+    const votes = typeDeptVotes.get(name);
+    if (!votes) return null;
+    let best: string | null = null;
+    let bestCount = 0;
+    for (const [code, n] of votes) {
+      if (n > bestCount) {
+        best = code;
+        bestCount = n;
+      }
+    }
+    return best;
+  };
 
   // Build a complete per-day list across the full 7-day window (including
   // zero days) so the chart renders consistently. Each day carries its
@@ -272,7 +300,7 @@ export async function GET() {
       count: daily.total,
       depts: Array.from(daily.depts.values()).sort((a, b) => b.count - a.count),
       topJobTypes: Array.from(daily.types.entries())
-        .map(([name, count]) => ({ name, count }))
+        .map(([name, count]) => ({ name, count, dept: deptForType(name) }))
         .sort((a, b) => b.count - a.count),
       byBu: Array.from(daily.bus.values())
         .map((b) => ({
@@ -299,9 +327,9 @@ export async function GET() {
     .sort((a, b) => b.total - a.total);
 
   const topJobTypes = Array.from(typeTotals.entries())
-    .map(([name, count]) => ({ name, count }))
+    .map(([name, count]) => ({ name, count, dept: deptForType(name) }))
     .sort((a, b) => b.count - a.count)
-    .slice(0, 8);
+    .slice(0, 9);
 
   const body: UpcomingAppointmentsResponse = {
     totalAppointments: active.length,

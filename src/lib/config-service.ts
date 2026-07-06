@@ -12,6 +12,7 @@
  */
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
+import { applyDivisionModel } from '@/lib/divisions';
 import {
   businessUnits,
   companyConfig,
@@ -115,6 +116,30 @@ export async function getConfigTyped<T = string | number | boolean | unknown>(
   const entry = cache.get(key);
   if (!entry || entry.value == null) return null;
   return coerce(entry) as T;
+}
+
+/**
+ * Hydrate the query-time division merge model from tenant config.
+ *
+ * Optional keys in company_config (config_type='json'):
+ *   division_merges          — {"source_code": "surviving_code", ...}
+ *   division_name_overrides  — {"surviving_code": "Display Name", ...}
+ *
+ * Call at the top of any server code path that uses mergeDivisionCode /
+ * isMergedAwayDivision / divisionDisplayName. With neither key set the
+ * model is empty and every helper is an identity function (correct
+ * default for tenants without roll-ups).
+ */
+export async function loadDivisionModel(): Promise<void> {
+  const [merges, nameOverrides] = await Promise.all([
+    getConfigTyped<Record<string, string>>('division_merges'),
+    getConfigTyped<Record<string, string>>('division_name_overrides'),
+  ]);
+  applyDivisionModel({
+    merges: merges && typeof merges === 'object' ? merges : undefined,
+    nameOverrides:
+      nameOverrides && typeof nameOverrides === 'object' ? nameOverrides : undefined,
+  });
 }
 
 /** All config keys as a `{ key: value }` map, with type coercion applied. */

@@ -91,6 +91,16 @@ html, body {
   animation: live-pulse 1.8s ease-in-out infinite;
 }
 
+/* Technician stats modal — backdrop fade + card pop-in. */
+@keyframes fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes pop {
+  from { opacity: 0; transform: translateY(12px) scale(.98); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);   }
+}
+
 /* Chart gridline baseline — 8% of border token, horizontal only. */
 .chart-grid line {
   stroke: color-mix(in oklch, var(--border) 100%, transparent);

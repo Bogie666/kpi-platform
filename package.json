@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/lib/period.test.ts src/lib/targets/calendar.test.ts src/lib/targets/compute.test.ts",
     "db:push": "drizzle-kit push",
     "db:seed": "tsx src/db/seed/index.ts",
     "db:studio": "drizzle-kit studio",

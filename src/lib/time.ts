@@ -38,3 +38,21 @@ export function shiftISO(iso: string, days: number): string {
   dt.setUTCDate(dt.getUTCDate() + days);
   return dt.toISOString().slice(0, 10);
 }
+
+/**
+ * UTC instant for midnight business-local time of `localDay` (+ optional day
+ * shift). ST endpoints accept UTC instants; midnight CT is 05:00/06:00Z
+ * depending on DST, so we probe the offset with Intl rather than hardcoding.
+ */
+export function localDayStartUTC(localDay: string, addDays = 0, tz: string = DEFAULT_BUSINESS_TZ): string {
+  const [y, m, d] = localDay.split('-').map(Number);
+  const naive = new Date(Date.UTC(y, m - 1, d + addDays, 0, 0, 0));
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour: '2-digit',
+    hour12: false,
+  });
+  const localHour = Number(fmt.format(naive));
+  const offsetHours = (24 - localHour) % 24;
+  return new Date(naive.getTime() + offsetHours * 3_600_000).toISOString();
+}

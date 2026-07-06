@@ -11,6 +11,8 @@ import { Pill } from '@/components/primitives/pill';
 import { Skeleton } from '@/components/primitives/skeleton';
 import { fmtMoney } from '@/lib/format/money';
 import { fmtPercent } from '@/lib/format/percent';
+import { mergeDivisionCode } from '@/lib/divisions';
+import { useCompanyConfig } from '@/lib/hooks/use-company-config';
 import {
   useTargetDelete,
   useTargetUpsert,
@@ -21,15 +23,12 @@ import {
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const DEPT_CODES: Array<{ code: string; name: string }> = [
-  { code: 'hvac_service', name: 'HVAC Service' },
-  { code: 'hvac_sales', name: 'HVAC Sales' },
-  { code: 'hvac_maintenance', name: 'HVAC Maintenance' },
-  { code: 'plumbing', name: 'Plumbing' },
-  { code: 'commercial', name: 'Commercial' },
-  { code: 'electrical', name: 'Electrical' },
-  { code: 'etx', name: 'ETX' },
-];
+// Divisions for the budget picker. Plug-and-play: sourced from the tenant's
+// wizard-configured divisions (via /api/config) at render time, so the
+// picker always matches whatever divisions this tenant actually set up.
+// `DEPT_CODES` is a module-level binding reassigned inside TargetsClient
+// before children render — every subcomponent below reads the live list.
+let DEPT_CODES: Array<{ code: string; name: string }> = [];
 
 const METRICS = [
   { value: 'revenue', label: 'Revenue', unit: 'cents' as const },
@@ -88,6 +87,14 @@ export function TargetsClient() {
   const { data, isLoading, error, refetch } = useTargetsList();
   const upsert = useTargetUpsert();
   const del = useTargetDelete();
+  const { data: publicConfig } = useCompanyConfig();
+
+  // Bind the module-level division list to this tenant's configured
+  // divisions before any child renders. Falls back to empty (renders
+  // "no divisions") until /api/config resolves.
+  DEPT_CODES = (publicConfig?.divisions ?? [])
+    .filter((d) => d.active)
+    .map((d) => ({ code: d.code, name: d.name }));
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [addingContext, setAddingContext] = useState<{ monthKey: string; dept: string } | null>(
@@ -192,9 +199,18 @@ export function TargetsClient() {
       return;
     }
     const currentMap = monthlyRevByKeyByDept.get(monthKey(year, month)) ?? new Map();
-    const toCreate = Array.from(prevMap.values()).filter(
-      (r) => r.scopeValue && !currentMap.has(r.scopeValue),
-    );
+    // Collapse merged-away division codes (e.g. legacy `sales`) onto their
+    // survivor before copying, and de-dupe, so we never propagate a legacy
+    // row that would then split from the code the picker actually edits.
+    const seen = new Set<string>();
+    const toCreate: Array<{ scopeValue: string; targetValue: number; unit: TargetRow['unit']; notes: string | null }> = [];
+    for (const r of prevMap.values()) {
+      if (!r.scopeValue) continue;
+      const code = mergeDivisionCode(r.scopeValue);
+      if (currentMap.has(code) || seen.has(code)) continue;
+      seen.add(code);
+      toCreate.push({ scopeValue: code, targetValue: Number(r.targetValue), unit: r.unit, notes: r.notes });
+    }
     if (!toCreate.length) {
       notify('error', 'Nothing to copy (current month already has those depts set)');
       return;

@@ -37,6 +37,19 @@ export interface FinancialTrendPoint {
   target: number;
 }
 
+export interface DailyPace {
+  /** The day being measured, YYYY-MM-DD. */
+  date: string;
+  /** Cents invoiced that day (partial if `isToday`). */
+  revenue: number;
+  /** Cents — that day's slice of the monthly target. */
+  target: number;
+  /** revenue / target, in bps (e.g. 10550 = 105.5%). */
+  percentToGoal: number;
+  /** true when `date` is the live calendar day (vs. a closed period). */
+  isToday: boolean;
+}
+
 export interface FinancialResponse {
   total: {
     revenue: CompareValue;
@@ -49,6 +62,10 @@ export interface FinancialResponse {
      *  ultimately needs to hit by the end of the window. */
     fullPeriodTarget: number;
     percentToGoal: number;
+    /** Single-day pace (today vs today's slice of the monthly target). Null
+     *  when the window's last day has no revenue target, so the hero can
+     *  simply hide the card. */
+    today: DailyPace | null;
   };
   departments: FinancialDepartment[];
   trend: FinancialTrendPoint[];
@@ -130,6 +147,8 @@ export interface Technician {
   trend: 'up' | 'down' | 'flat';
   spark: number[];
   lySpark?: number[];
+  /** YYYY-MM labels aligned to `spark` (this year's trailing months). */
+  sparkMonths?: string[];
 }
 
 export interface TeamRollup {

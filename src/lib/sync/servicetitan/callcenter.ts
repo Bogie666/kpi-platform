@@ -49,6 +49,8 @@ interface StCall {
   id: number;
   jobNumber?: string | null;
   leadCall?: {
+    /** ST's lead-vs-not-lead classification of the call's purpose. */
+    reason?: { lead?: boolean; id?: number; name?: string } | null;
     id?: number;
     receivedOn?: string;
     duration?: string; // HH:MM:SS
@@ -141,9 +143,11 @@ export async function syncCallcenter(
     type DailyAgg = {
       reportDate: string;
       employeeName: string;
-      total: number;
-      booked: number;
-      durationSumSec: number; // across engaged calls only
+      total: number;            // every lead-tracked inbound call
+      booked: number;           // total with jobNumber attached
+      leadCalls: number;        // subset of `total` where reason.lead = true
+      leadCallsBooked: number;  // subset of `leadCalls` that booked
+      durationSumSec: number;   // across engaged calls only
       engagedCount: number;
       abandoned: number;
     };
@@ -168,6 +172,7 @@ export async function syncCallcenter(
       const { date, hour } = localBucket(lc.receivedOn);
       const agentName = lc.agent?.name?.trim() || 'Unassigned';
       const isBooked = !!c.jobNumber;
+      const isLead = lc.reason?.lead === true;
       const isAbandoned = (lc.callType || '').toLowerCase() === 'abandoned';
       const durationSec = parseDuration(lc.duration);
 
@@ -178,12 +183,18 @@ export async function syncCallcenter(
         employeeName: agentName,
         total: 0,
         booked: 0,
+        leadCalls: 0,
+        leadCallsBooked: 0,
         durationSumSec: 0,
         engagedCount: 0,
         abandoned: 0,
       };
       d.total += 1;
       if (isBooked) d.booked += 1;
+      if (isLead) {
+        d.leadCalls += 1;
+        if (isBooked) d.leadCallsBooked += 1;
+      }
       if (isAbandoned) d.abandoned += 1;
       else {
         d.durationSumSec += durationSec;
@@ -213,6 +224,10 @@ export async function syncCallcenter(
       reportDate: r.reportDate,
       totalCalls: r.total,
       callsBooked: r.booked,
+      // leadCalls / leadCallsBooked are captured for a stricter sales-lead
+      // conversion view; displayed booking rate stays denominator=all-inbound.
+      leadCalls: r.leadCalls,
+      leadCallsBooked: r.leadCallsBooked,
       bookingRateBps: r.total > 0 ? Math.round((r.booked / r.total) * 10000) : null,
       avgWaitSec: null, // deprecated; we report avgCallTimeSec instead
       avgCallTimeSec: r.engagedCount > 0 ? Math.round(r.durationSumSec / r.engagedCount) : null,

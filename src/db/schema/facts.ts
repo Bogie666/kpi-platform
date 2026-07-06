@@ -45,12 +45,22 @@ export const technicianDaily = pgTable(
   }),
 );
 
-/** Financial daily — department revenue. */
+/**
+ * Financial daily — revenue at the (business_unit, date) grain.
+ *
+ * Stored at BU-grain so the financial panel can break out per-BU within
+ * each division. `departmentCode` is denormalized so existing dept-level
+ * rollup queries keep working without a join. Old dept-grain rows have
+ * null business_unit_id and should be cleared via /api/admin/clear-fact-data
+ * before the first BU-grain sync.
+ */
 export const financialDaily = pgTable(
   'financial_daily',
   {
     id: serial('id').primaryKey(),
     departmentCode: text('department_code').notNull(),
+    /** Nullable to allow the column add via db:push without touching existing rows. */
+    businessUnitId: integer('business_unit_id'),
     reportDate: date('report_date').notNull(),
 
     totalRevenueCents: bigint('total_revenue_cents', { mode: 'number' }).notNull().default(0),
@@ -62,8 +72,9 @@ export const financialDaily = pgTable(
     syncedAt: timestamp('synced_at').defaultNow().notNull(),
   },
   (t) => ({
-    uniq: uniqueIndex('fin_daily_uniq').on(t.departmentCode, t.reportDate),
+    uniq: uniqueIndex('fin_daily_uniq').on(t.businessUnitId, t.reportDate),
     dateIdx: index('fin_daily_date_idx').on(t.reportDate),
+    deptDateIdx: index('fin_daily_dept_date_idx').on(t.departmentCode, t.reportDate),
   }),
 );
 

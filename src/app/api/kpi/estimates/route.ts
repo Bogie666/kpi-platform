@@ -125,7 +125,7 @@ function buildJobAggs(rows: RawRow[]): JobAgg[] {
 
 export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams;
-  const period = resolvePeriod({
+  const period = await resolvePeriod({
     preset: params.get('preset') ?? 'ttm',
     from: params.get('from'),
     to: params.get('to'),

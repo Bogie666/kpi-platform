@@ -64,7 +64,7 @@ export interface PeriodArgs {
 
 /** Live compute across cur / LY / LY2 windows for a resolved period. */
 export async function computeNewCustomers(args: PeriodArgs): Promise<NewCustomersResult> {
-  const period = resolvePeriod(args);
+  const period = await resolvePeriod(args);
   const cur = await countNewCustomersIn(period.cur);
   const ly = await countNewCustomersIn(period.ly);
   const ly2 = await countNewCustomersIn(period.ly2);
@@ -87,7 +87,7 @@ export async function getNewCustomers(
   args: PeriodArgs,
   opts: { maxAgeMin?: number; force?: boolean } = {},
 ): Promise<NewCustomersResult & { cached: boolean }> {
-  const period = resolvePeriod(args);
+  const period = await resolvePeriod(args);
   const key = `new-customers:${period.cur.from}:${period.cur.to}`;
   const maxAgeMin = opts.maxAgeMin ?? 180;
 

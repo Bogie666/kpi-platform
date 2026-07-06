@@ -238,31 +238,23 @@ function validateConfig(config: TechnicianReportConfig): void {
   if (!hasIdentity) throw new Error('map employeeId or employeeName before syncing');
 }
 
-export async function syncTechnicianReports(
+/**
+ * Pull + upsert every active configured report for a single window. No
+ * sync-run wrapper — callers that want run bookkeeping use
+ * `syncTechnicianReports`; the monthly backfill calls this directly per
+ * month bucket.
+ */
+async function syncTechReportWindow(
   window: SyncWindow,
-  trigger: SyncTrigger,
-): Promise<TechnicianReportsSyncResult> {
-  const start = await startSyncRun({
-    source: TECHNICIAN_REPORTS_SOURCE,
-    trigger,
-    reportId: 'technician-reports',
-    windowStart: window.from,
-    windowEnd: window.to,
-  });
-  if (start.status === 'skipped') {
-    return { runId: null, skipped: start.reason, perRole: [], rowsUpserted: 0 };
+): Promise<{ perRole: TechnicianReportsSyncResult['perRole']; rowsUpserted: number }> {
+  const configs = (await getTechnicianReportConfigs()).filter((c) => c.active);
+  if (configs.length === 0) {
+    throw new Error('No active technician report configs found. Add reports in setup first.');
   }
-  const runId = start.runId;
 
-  try {
-    const configs = (await getTechnicianReportConfigs()).filter((c) => c.active);
-    if (configs.length === 0) {
-      throw new Error('No active technician report configs found. Add reports in setup first.');
-    }
-
-    const perRole: TechnicianReportsSyncResult['perRole'] = [];
-    let totalUpserted = 0;
-    const database = db();
+  const perRole: TechnicianReportsSyncResult['perRole'] = [];
+  let totalUpserted = 0;
+  const database = db();
 
     for (const config of configs) {
       try {
@@ -356,15 +348,116 @@ export async function syncTechnicianReports(
       );
     }
 
-    await finishSyncRunSuccess(runId, {
-      rowsFetched,
-      rowsUpserted: totalUpserted,
-    });
+  return { perRole, rowsUpserted: totalUpserted };
+}
 
-    return { runId, perRole, rowsUpserted: totalUpserted };
+export async function syncTechnicianReports(
+  window: SyncWindow,
+  trigger: SyncTrigger,
+): Promise<TechnicianReportsSyncResult> {
+  const start = await startSyncRun({
+    source: TECHNICIAN_REPORTS_SOURCE,
+    trigger,
+    reportId: 'technician-reports',
+    windowStart: window.from,
+    windowEnd: window.to,
+  });
+  if (start.status === 'skipped') {
+    return { runId: null, skipped: start.reason, perRole: [], rowsUpserted: 0 };
+  }
+  const runId = start.runId;
+
+  try {
+    const { perRole, rowsUpserted } = await syncTechReportWindow(window);
+    await finishSyncRunSuccess(runId, {
+      rowsFetched: perRole.reduce((s, r) => s + r.rows, 0),
+      rowsUpserted,
+    });
+    return { runId, perRole, rowsUpserted };
   } catch (err) {
     const msg = err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err);
     await finishSyncRunError(runId, msg);
     throw err;
   }
+}
+
+/** First / last calendar day of a month (UTC), as YYYY-MM-DD. */
+function monthBounds(year: number, month1: number): SyncWindow {
+  const from = `${year}-${String(month1).padStart(2, '0')}-01`;
+  const lastDay = new Date(Date.UTC(year, month1, 0)).getUTCDate();
+  const to = `${year}-${String(month1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+  return { from, to };
+}
+
+export interface BackfillResult {
+  processed: Array<{ month: string; rows: number; skipped?: boolean; error?: string }>;
+  done: boolean;
+  /** When time-budgeted out, the YYYY-MM to resume from on the next call. */
+  nextMonth?: string;
+}
+
+/**
+ * Backfill monthly snapshots of the role KPI reports into `technician_period`
+ * — one full-month bucket per month for the last `months` months (default 24,
+ * enough for a trailing-12 trend plus its YoY overlay). Idempotent: months
+ * that already have rows are skipped unless `force`. Time-budgeted so a single
+ * serverless invocation returns progress and a `nextMonth` to resume from.
+ */
+export async function backfillTechMonthlyHistory(opts: {
+  months?: number;
+  force?: boolean;
+  timeBudgetMs?: number;
+}): Promise<BackfillResult> {
+  const months = opts.months ?? 24;
+  const force = opts.force ?? false;
+  const budget = opts.timeBudgetMs ?? 240_000;
+  const started = Date.now();
+  const database = db();
+
+  const now = new Date();
+  const buckets: SyncWindow[] = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+    buckets.push(monthBounds(d.getUTCFullYear(), d.getUTCMonth() + 1));
+  }
+
+  const processed: BackfillResult['processed'] = [];
+  for (const b of buckets) {
+    if (Date.now() - started > budget) {
+      return { processed, done: false, nextMonth: b.from.slice(0, 7) };
+    }
+    if (!force) {
+      const existing = await database
+        .select({ id: technicianPeriod.id })
+        .from(technicianPeriod)
+        .where(
+          and(
+            eq(technicianPeriod.periodStart, b.from),
+            eq(technicianPeriod.periodEnd, b.to),
+          ),
+        )
+        .limit(1);
+      if (existing.length > 0) {
+        processed.push({ month: b.from.slice(0, 7), rows: 0, skipped: true });
+        continue;
+      }
+    }
+    try {
+      const r = await syncTechReportWindow(b);
+      processed.push({ month: b.from.slice(0, 7), rows: r.rowsUpserted });
+    } catch (err) {
+      processed.push({
+        month: b.from.slice(0, 7),
+        rows: 0,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return { processed, done: true };
+}
+
+/** Current calendar month as a full-month bucket (1st → last day). */
+export function currentMonthBucket(): SyncWindow {
+  const now = new Date();
+  return monthBounds(now.getUTCFullYear(), now.getUTCMonth() + 1);
 }

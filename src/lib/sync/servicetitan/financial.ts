@@ -155,8 +155,14 @@ export async function syncFinancial(
     });
     invoicesFetched = invoices.length;
 
-    // Aggregate by (dept_code, report_date) over all income items.
-    const agg = new Map<string, { dept: string; date: string; totalCents: number }>();
+    // Aggregate at (business_unit_id, report_date) grain so the financial
+    // panel can roll up to division for the headline view AND break out
+    // per-BU on demand. `departmentCode` is denormalized into each row so
+    // existing dept-level queries don't need to join.
+    const agg = new Map<
+      string,
+      { buId: number; dept: string; date: string; totalCents: number }
+    >();
     for (const inv of invoices) {
       const date = dateOf(inv);
       if (!date) continue;
@@ -183,15 +189,16 @@ export async function syncFinancial(
           continue;
         }
         const cents = toCents(item.total);
-        const key = `${dept}|${date}`;
+        const key = `${buId}|${date}`;
         const prior = agg.get(key);
         if (prior) prior.totalCents += cents;
-        else agg.set(key, { dept, date, totalCents: cents });
+        else agg.set(key, { buId, dept, date, totalCents: cents });
       }
     }
 
     const rows = Array.from(agg.values()).map((r) => ({
       departmentCode: r.dept,
+      businessUnitId: r.buId,
       reportDate: r.date,
       totalRevenueCents: r.totalCents,
       // Jobs / opportunities land in a follow-up commit once the Jobs + Estimates
@@ -211,8 +218,9 @@ export async function syncFinancial(
           .insert(financialDaily)
           .values(batch)
           .onConflictDoUpdate({
-            target: [financialDaily.departmentCode, financialDaily.reportDate],
+            target: [financialDaily.businessUnitId, financialDaily.reportDate],
             set: {
+              departmentCode: sql.raw(`excluded.department_code`),
               totalRevenueCents: sql.raw(`excluded.total_revenue_cents`),
               sourceReportId: sql.raw(`excluded.source_report_id`),
               syncedAt: new Date(),

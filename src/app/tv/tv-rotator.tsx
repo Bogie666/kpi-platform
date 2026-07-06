@@ -8,6 +8,7 @@ import { CallCenterScene } from './scenes/call-center-scene';
 import { MembershipsScene } from './scenes/memberships-scene';
 import { AppointmentsScene } from './scenes/appointments-scene';
 import { ReviewsScene } from './scenes/reviews-scene';
+import { WeatherScene } from './scenes/weather-scene';
 
 interface SceneEntry {
   id: string;
@@ -32,6 +33,7 @@ const PLAYLIST: SceneEntry[] = [
   { id: 'memberships', durationSec: 22, render: () => <MembershipsScene /> },
   { id: 'appointments', durationSec: 22, render: () => <AppointmentsScene /> },
   { id: 'reviews', durationSec: 25, render: () => <ReviewsScene /> },
+  { id: 'weather', durationSec: 22, render: () => <WeatherScene /> },
 ];
 
 export function TvRotator() {

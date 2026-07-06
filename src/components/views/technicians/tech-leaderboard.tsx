@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { cn } from '@/lib/cn';
 import { Panel } from '@/components/primitives/panel';
 import { ComparePill } from '@/components/primitives/compare-pill';
@@ -7,6 +8,7 @@ import { fmtMoney } from '@/lib/format/money';
 import { fmtPercent } from '@/lib/format/percent';
 import type { Technician } from '@/lib/types/kpi';
 import type { CompareMode } from '@/lib/state/url-params';
+import { TechStatsModal } from './tech-stats-modal';
 
 export interface TechLeaderboardProps {
   technicians: Technician[];
@@ -92,15 +94,45 @@ export function TechLeaderboard({ technicians, compareMode, roleCode }: TechLead
   const compareOn = compareMode === 'ly' || compareMode === 'ly2';
   const isCA = roleCode === 'comfort_advisor';
 
+  // Click-to-open stats card (dashboard only — the TV scene has its own
+  // leaderboard component and stays click-inert).
+  const [selected, setSelected] = useState<Technician | null>(null);
+  const [compareWith, setCompareWith] = useState<Technician | null>(null);
+  const closeModal = () => {
+    setSelected(null);
+    setCompareWith(null);
+  };
+
   return (
     <Panel eyebrow="Leaderboard" title="Performance by technician" padding="cozy">
       <div className="overflow-x-auto -mx-2 px-2">
         {isCA ? (
-          <CAColumns technicians={technicians} compareMode={compareMode} compareOn={compareOn} />
+          <CAColumns
+            technicians={technicians}
+            compareMode={compareMode}
+            compareOn={compareOn}
+            onSelect={setSelected}
+          />
         ) : (
-          <TechColumns technicians={technicians} compareMode={compareMode} compareOn={compareOn} />
+          <TechColumns
+            technicians={technicians}
+            compareMode={compareMode}
+            compareOn={compareOn}
+            onSelect={setSelected}
+          />
         )}
       </div>
+
+      {selected && (
+        <TechStatsModal
+          tech={selected}
+          compareWith={compareWith}
+          peers={technicians}
+          isCA={isCA}
+          onPickCompare={setCompareWith}
+          onClose={closeModal}
+        />
+      )}
     </Panel>
   );
 }
@@ -111,10 +143,12 @@ function CAColumns({
   technicians,
   compareMode,
   compareOn,
+  onSelect,
 }: {
   technicians: Technician[];
   compareMode: CompareMode;
   compareOn: boolean;
+  onSelect: (t: Technician) => void;
 }) {
   return (
     <table className="w-full text-left">
@@ -140,7 +174,17 @@ function CAColumns({
         {technicians.map((t) => (
           <tr
             key={t.employeeId}
-            className="border-b border-border/60 last:border-0 hover:bg-surface-2/20 transition-colors"
+            onClick={() => onSelect(t)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onSelect(t);
+              }
+            }}
+            aria-label={`View stats for ${t.name}`}
+            className="border-b border-border/60 last:border-0 hover:bg-surface-2/20 focus-visible:bg-surface-2/30 focus:outline-none cursor-pointer transition-colors"
           >
             <RankCell rank={t.rank} />
             <TechCell tech={t} />
@@ -238,10 +282,12 @@ function TechColumns({
   technicians,
   compareMode,
   compareOn,
+  onSelect,
 }: {
   technicians: Technician[];
   compareMode: CompareMode;
   compareOn: boolean;
+  onSelect: (t: Technician) => void;
 }) {
   return (
     <table className="w-full text-left">
@@ -269,7 +315,17 @@ function TechColumns({
         {technicians.map((t) => (
           <tr
             key={t.employeeId}
-            className="border-b border-border/60 last:border-0 hover:bg-surface-2/20 transition-colors"
+            onClick={() => onSelect(t)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onSelect(t);
+              }
+            }}
+            aria-label={`View stats for ${t.name}`}
+            className="border-b border-border/60 last:border-0 hover:bg-surface-2/20 focus-visible:bg-surface-2/30 focus:outline-none cursor-pointer transition-colors"
           >
             <RankCell rank={t.rank} />
             <TechCell tech={t} />

@@ -135,6 +135,32 @@ async function runSchema(): Promise<{
     ADD COLUMN IF NOT EXISTS avg_call_time_sec integer
   `;
 
+  // BU-grain financial_daily (migration 0006): per-BU revenue rows so the
+  // financial panel can break out business units inside each division.
+  await sql`
+    ALTER TABLE financial_daily
+    ADD COLUMN IF NOT EXISTS business_unit_id integer
+  `;
+  await sql`DROP INDEX IF EXISTS fin_daily_uniq`;
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS fin_daily_uniq
+      ON financial_daily (business_unit_id, report_date)
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS fin_daily_dept_date_idx
+      ON financial_daily (department_code, report_date)
+  `;
+
+  // Lead-call counters (migration 0006) — stricter sales-lead conversion view.
+  await sql`
+    ALTER TABLE call_center_daily
+    ADD COLUMN IF NOT EXISTS lead_calls integer NOT NULL DEFAULT 0
+  `;
+  await sql`
+    ALTER TABLE call_center_daily
+    ADD COLUMN IF NOT EXISTS lead_calls_booked integer NOT NULL DEFAULT 0
+  `;
+
   // total_job_average_cents added to technician_period — used for
   // 'Avg ticket' column on non-CA tech pages (TotalJobAverage from ST).
   await sql`
@@ -198,8 +224,11 @@ async function runSchema(): Promise<{
     tablesEnsured: ['business_units', 'technician_period'],
     columnsEnsured: [
       'financial_daily.closed_opportunities',
+      'financial_daily.business_unit_id',
       'estimate_analysis.job_id',
       'call_center_daily.avg_call_time_sec',
+      'call_center_daily.lead_calls',
+      'call_center_daily.lead_calls_booked',
       'technician_period.total_job_average_cents',
     ],
     roleMetricUpdated: (roleUpdate as { code: string }[]).map((r) => r.code),

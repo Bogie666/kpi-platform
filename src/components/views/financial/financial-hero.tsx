@@ -7,6 +7,10 @@ import { DualTrend, type DualTrendPoint } from '@/components/charts/dual-trend';
 import { TrendLegend } from '@/components/charts/trend-legend';
 import { fmtMoney } from '@/lib/format/money';
 import { fmtPercent } from '@/lib/format/percent';
+import { cn } from '@/lib/cn';
+import { fmtAsOf } from '@/lib/format/date';
+import { DeltaPill } from '@/components/primitives/delta-pill';
+import { LiveDot } from '@/components/primitives/live-dot';
 import type { FinancialResponse } from '@/lib/types/kpi';
 import type { CompareMode } from '@/lib/state/url-params';
 import type { PipelineRevenueResponse } from '@/app/api/kpi/pipeline-revenue/route';
@@ -28,6 +32,9 @@ export function FinancialHero({ data, compareMode, pipeline }: FinancialHeroProp
   const { total, trend } = data;
   const compareOn = compareMode === 'ly' || compareMode === 'ly2';
   const compareYear: 'ly' | 'ly2' = compareMode === 'ly2' ? 'ly2' : 'ly';
+
+  const today = total.today;
+  const todayAhead = today ? today.revenue >= today.target : false;
 
   const pctToGoal = total.percentToGoal / 100;
   const fullTarget = total.fullPeriodTarget;
@@ -148,6 +155,59 @@ export function FinancialHero({ data, compareMode, pipeline }: FinancialHeroProp
           emphasis="hero"
           sub={subMeta}
         />
+
+        {today && (
+          <div
+            className="rounded-card bg-surface-2 p-4 border"
+            style={{ borderColor: 'color-mix(in oklch, var(--accent) 28%, var(--border))' }}
+          >
+            <div className="flex items-center justify-between gap-2 mb-2.5">
+              <span className="flex items-center gap-2">
+                <LiveDot size="sm" label="" />
+                <span className="text-eyebrow uppercase text-text">
+                  {today.isToday ? 'Today' : 'Final day'} · Daily pace
+                </span>
+              </span>
+              <span className="font-mono tabular-nums text-[11px] text-muted">
+                as of {fmtAsOf(data.meta.asOf)}
+              </span>
+            </div>
+
+            <div className="flex items-baseline gap-2.5 flex-wrap">
+              <span className="text-kpi font-mono tabular-nums">{fmtMoney(today.revenue)}</span>
+              <span className="font-mono tabular-nums text-[14px] text-muted">
+                / {fmtMoney(today.target)} target
+              </span>
+              <DeltaPill current={today.revenue} previous={today.target} format="percent" />
+            </div>
+
+            <div className="flex items-center gap-2.5 mt-3">
+              <div className="h-1.5 flex-1 bg-bg rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-accent rounded-full transition-[width] duration-300 ease-out"
+                  style={{ width: `${Math.min(today.percentToGoal / 100, 100)}%` }}
+                />
+              </div>
+              <span
+                className={cn(
+                  'font-mono tabular-nums text-[12px] w-12 text-right',
+                  todayAhead ? 'text-up' : 'text-muted',
+                )}
+              >
+                {fmtPercent(today.percentToGoal)}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between mt-2 text-[11px]">
+              <span className="text-muted">Overall daily revenue vs daily target</span>
+              <span className={cn('font-mono tabular-nums', todayAhead ? 'text-up' : 'text-down')}>
+                {todayAhead ? '+' : ''}{fmtMoney(today.revenue - today.target)}{' '}
+                {todayAhead ? 'ahead of goal' : 'behind goal'}
+              </span>
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between text-[12px] text-muted">
             <span className="text-eyebrow uppercase">Daily pace</span>

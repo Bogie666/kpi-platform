@@ -4,7 +4,15 @@
  *
  * Dates are treated as calendar dates with no time component — the DB column
  * is `date`, not `timestamp`, so this is simple string math, no timezones.
+ *
+ * "Today" is anchored to the business timezone (America/Chicago), NOT UTC.
+ * The window math below reads the anchor date via UTC getters, so the anchor
+ * must be a UTC-midnight Date whose calendar Y/M/D already equal the local
+ * business date — otherwise MTD/QTD/YTD roll over to the next period in the
+ * evening (UTC hits midnight ~6-7pm CT), showing next month's data early.
  */
+
+import { localTodayISO } from './time';
 
 export type Preset =
   | 'today'
@@ -112,8 +120,13 @@ export interface ResolveArgs {
  * Resolve a period spec into a concrete date window plus its LY / LY2 siblings.
  * Explicit `from`/`to` override `preset`. Default is MTD.
  */
-export function resolvePeriod(args: ResolveArgs = {}): ResolvedPeriod {
-  const today = args.today ?? new Date();
+export async function resolvePeriod(args: ResolveArgs = {}): Promise<ResolvedPeriod> {
+  // Anchor "today" to the configured business timezone. `localTodayISO()`
+  // returns the tenant-local calendar date; parseIso turns it into a
+  // UTC-midnight Date so the UTC getters in windowFor() read the correct
+  // local Y/M/D. Without this the period rolls over at UTC midnight
+  // (6/7pm local) — the exact bug fixed in lexkpi.
+  const today = args.today ?? parseIso(await localTodayISO());
   if (args.from && args.to) {
     const cur: Window = { from: args.from, to: args.to };
     return { cur, ly: shiftYears(cur, -1), ly2: shiftYears(cur, -2) };

@@ -5,6 +5,10 @@
     {
       "path": "/api/sync/tick",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/sync/daily-targets-email",
+      "schedule": "30 11,12 * * 1-5"
     }
   ]
 }

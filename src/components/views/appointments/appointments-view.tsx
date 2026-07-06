@@ -4,7 +4,7 @@ import { useUpcomingAppointments } from '@/lib/hooks/use-upcoming-appointments';
 import { SectionHead } from '@/components/primitives/section-head';
 import { Panel } from '@/components/primitives/panel';
 import { fmtAsOf } from '@/lib/format/date';
-import { UpcomingAppointmentsPanel } from '@/components/views/operations/upcoming-appointments-panel';
+import { AppointmentsDrilldown } from './appointments-drilldown';
 
 export function AppointmentsView() {
   const { data, isLoading, error, refetch } = useUpcomingAppointments();
@@ -62,7 +62,7 @@ export function AppointmentsView() {
         </Panel>
       )}
 
-      {data && <UpcomingAppointmentsPanel data={data} />}
+      {data && <AppointmentsDrilldown data={data} />}
     </div>
   );
 }

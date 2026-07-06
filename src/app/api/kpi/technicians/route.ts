@@ -165,7 +165,7 @@ export async function GET(req: NextRequest) {
   const roles: Role[] = [ALL_ROLE, ...realRoles];
   const role = roles.find((r) => r.code === roleCode) ?? roles[0];
 
-  const period = resolvePeriod({
+  const period = await resolvePeriod({
     preset: params.get('preset'),
     from: params.get('from'),
     to: params.get('to'),
@@ -305,6 +305,11 @@ export async function GET(req: NextRequest) {
     ),
   };
 
+  // Attach the trailing-12-month revenue trend (this year + LY overlay) from
+  // the monthly snapshot rows in technician_period. No-op until the monthly
+  // backfill has run; the stats card shows an empty-state in the meantime.
+  await attachMonthlyTrend(database, roleCode, technicians);
+
   const body: TechniciansResponse = {
     role,
     roles,
@@ -332,3 +337,92 @@ function compareValue(
 
 // suppress unused — Window kept for future daily-sparkline layering
 void (null as Window | null);
+
+/** Last calendar day of a month (UTC). */
+function lastDayOfMonth(year: number, month1: number): string {
+  const d = new Date(Date.UTC(year, month1, 0)).getUTCDate();
+  return `${year}-${String(month1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+/** A technician_period row is a "monthly snapshot" iff it spans exactly one
+ *  calendar month (1st → last day). Filters out the dashboard's MTD/YTD/etc.
+ *  windows that share the table. */
+function isMonthlyBucket(periodStart: string, periodEnd: string): boolean {
+  if (!periodStart.endsWith('-01')) return false;
+  const [y, m] = periodStart.split('-').map(Number);
+  return periodEnd === lastDayOfMonth(y, m);
+}
+
+function shiftMonthKey(key: string, deltaMonths: number): string {
+  const [y, m] = key.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + deltaMonths, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+/**
+ * Build each technician's `spark` (trailing-12-month revenue, this year) and
+ * `lySpark` (the same months a year earlier) from monthly snapshot rows.
+ * Mutates the passed technicians in place. Months with no data anywhere are
+ * dropped from the leading edge so a short history doesn't render as a long
+ * flat-zero line; a tech with all-zero values keeps an empty series so the
+ * card shows its "trend not available" state instead of a flat line.
+ */
+async function attachMonthlyTrend(
+  database: ReturnType<typeof db>,
+  roleCode: string,
+  technicians: Technician[],
+): Promise<void> {
+  if (technicians.length === 0) return;
+
+  const rows = await database
+    .select({
+      employeeId: technicianPeriod.employeeId,
+      periodStart: technicianPeriod.periodStart,
+      periodEnd: technicianPeriod.periodEnd,
+      totalSalesCents: technicianPeriod.totalSalesCents,
+    })
+    .from(technicianPeriod)
+    .where(eq(technicianPeriod.roleCode, roleCode));
+
+  const revByEmpMonth = new Map<number, Map<string, number>>();
+  const monthsWithData = new Set<string>();
+  for (const r of rows) {
+    if (!isMonthlyBucket(r.periodStart, r.periodEnd)) continue;
+    const mk = r.periodStart.slice(0, 7);
+    monthsWithData.add(mk);
+    let m = revByEmpMonth.get(r.employeeId);
+    if (!m) {
+      m = new Map();
+      revByEmpMonth.set(r.employeeId, m);
+    }
+    m.set(mk, Number(r.totalSalesCents));
+  }
+  if (monthsWithData.size === 0) return;
+
+  // Trailing 12 *completed* months, ending at last month — the in-progress
+  // current month is excluded so the YoY overlay never compares a partial
+  // month against a full one (its pacing lives on the financial hero card).
+  const now = new Date();
+  const anchor = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+  const anchorY = anchor.getUTCFullYear();
+  const anchorM = anchor.getUTCMonth() + 1;
+  const trailing: string[] = [];
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(Date.UTC(anchorY, anchorM - 1 - i, 1));
+    trailing.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
+  }
+  const months = trailing.filter((mk) => monthsWithData.has(mk));
+  if (months.length < 2) return;
+
+  for (const t of technicians) {
+    const byMonth = revByEmpMonth.get(t.employeeId);
+    if (!byMonth) continue;
+    const spark = months.map((mk) => byMonth.get(mk) ?? 0);
+    if (spark.some((v) => v > 0)) {
+      t.spark = spark;
+      t.sparkMonths = months;
+    }
+    const lySpark = months.map((mk) => byMonth.get(shiftMonthKey(mk, -12)) ?? 0);
+    if (lySpark.some((v) => v > 0)) t.lySpark = lySpark;
+  }
+}

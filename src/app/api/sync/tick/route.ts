@@ -12,7 +12,11 @@ import { db } from '@/db/client';
 import { syncRuns } from '@/db/schema';
 import { syncFinancial, FINANCIAL_SOURCE } from '@/lib/sync/servicetitan/financial';
 import { syncJobs, JOBS_SOURCE } from '@/lib/sync/servicetitan/jobs';
-import { syncTechnicianReports, TECHNICIAN_REPORTS_SOURCE } from '@/lib/sync/servicetitan/technician-reports';
+import {
+  syncTechnicianReports,
+  currentMonthBucket,
+  TECHNICIAN_REPORTS_SOURCE,
+} from '@/lib/sync/servicetitan/technician-reports';
 import { syncCallcenter, CALLCENTER_SOURCE } from '@/lib/sync/servicetitan/callcenter';
 import { syncMemberships, MEMBERSHIPS_SOURCE } from '@/lib/sync/servicetitan/memberships';
 import { syncEstimates, ESTIMATES_SOURCE } from '@/lib/sync/servicetitan/estimates';
@@ -86,6 +90,9 @@ async function syncTechReportsAllPeriods(): Promise<unknown> {
   const lastMonth = lastMonthWindow();
   const windows: Array<{ label: string; window: { from: string; to: string } }> = [
     { label: 'MTD', window: mtd },
+    // Full current-month bucket (1st → month end) keeps the technician trend
+    // chart's latest point fresh; the monthly backfill seeds prior months.
+    { label: 'MONTH_FULL', window: currentMonthBucket() },
     { label: 'YTD', window: ytd },
     { label: 'TTM', window: ttm },
     { label: 'LAST_MONTH', window: lastMonth },

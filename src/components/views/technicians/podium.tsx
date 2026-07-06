@@ -107,13 +107,29 @@ export function PodiumCard({ rank, tech, role }: PodiumCardProps) {
         <span aria-hidden="true" className="h-1 w-1 rounded-full bg-border" />
         <span>{tech.opps} opps</span>
       </div>
-      <Sparkline
-        values={tech.spark}
-        width={160}
-        height={28}
-        stroke={tech.trend === 'down' ? 'var(--down)' : deptColor}
-        fill="area"
-      />
+      {tech.spark.length >= 2 ? (
+        <Sparkline
+          values={tech.spark}
+          width={160}
+          height={28}
+          stroke={tech.trend === 'down' ? 'var(--down)' : deptColor}
+          fill="area"
+        />
+      ) : (
+        // No trailing-12-month history yet (e.g. a newer tech) — render a
+        // flat placeholder so all three podium cards keep the same footprint.
+        <svg width={160} height={28} viewBox="0 0 160 28" aria-hidden>
+          <line
+            x1={0}
+            y1={20}
+            x2={160}
+            y2={20}
+            stroke="var(--border)"
+            strokeWidth={1.5}
+            strokeDasharray="3 3"
+          />
+        </svg>
+      )}
     </div>
   );
 }

@@ -9,6 +9,7 @@ import { and, eq, gte, lte, sql, desc } from 'drizzle-orm';
 
 import { db } from '@/db/client';
 import {
+  businessUnits,
   departments,
   estimateAnalysis,
   financialDaily,
@@ -16,15 +17,26 @@ import {
   targets,
 } from '@/db/schema';
 import { resolvePeriod, daysInWindow, type Window } from '@/lib/period';
+import { localTodayISO } from '@/lib/time';
+import { loadDivisionModel } from '@/lib/config-service';
+import { monthCalendarContext } from '@/lib/targets/calendar';
+import {
+  divisionDisplayName,
+  isMergedAwayDivision,
+  mergeDivisionCode,
+} from '@/lib/divisions';
 import type { CompareValue, FinancialResponse } from '@/lib/types/kpi';
 
 export const dynamic = 'force-dynamic';
 
-// Build a dept-level revenue + jobs + opps aggregate for a window.
+// Build a (BU, date) revenue + jobs + opps aggregate for a window. Rows
+// arrive at the BU grain since Stage 2; callers roll up to division by
+// summing across BU id.
 async function financialAggregate(window: Window) {
   const database = db();
   const rows = await database
     .select({
+      businessUnitId: financialDaily.businessUnitId,
       departmentCode: financialDaily.departmentCode,
       reportDate: financialDaily.reportDate,
       totalRevenueCents: financialDaily.totalRevenueCents,
@@ -104,8 +116,9 @@ function compareValue(
 }
 
 export async function GET(req: NextRequest) {
+  await loadDivisionModel();
   const params = req.nextUrl.searchParams;
-  const period = resolvePeriod({
+  const period = await resolvePeriod({
     preset: params.get('preset'),
     from: params.get('from'),
     to: params.get('to'),
@@ -122,6 +135,15 @@ export async function GET(req: NextRequest) {
 
   const database = db();
   const deptList = await database.select().from(departments).orderBy(departments.sortOrder);
+  const buList = await database
+    .select({ id: businessUnits.id, name: businessUnits.name, departmentCode: businessUnits.departmentCode })
+    .from(businessUnits);
+  const buNameById = new Map(buList.map((b) => [b.id, b.name]));
+  // Collapse merged divisions (Sales → HVAC Install, Electrical Install →
+  // Electrical Service) so their BUs nest under the surviving division.
+  const deptByBu = new Map(
+    buList.map((b) => [b.id, b.departmentCode ? mergeDivisionCode(b.departmentCode) : null]),
+  );
 
   // Build per-department aggregates + daily spark values
   const curDays = daysInWindow(period.cur);
@@ -129,14 +151,20 @@ export async function GET(req: NextRequest) {
 
   const sumByDept = (rows: typeof curRows) => {
     const m = new Map<string, number>();
-    for (const r of rows) m.set(r.departmentCode, (m.get(r.departmentCode) ?? 0) + Number(r.totalRevenueCents));
+    for (const r of rows) {
+      const code = mergeDivisionCode(r.departmentCode);
+      m.set(code, (m.get(code) ?? 0) + Number(r.totalRevenueCents));
+    }
     return m;
   };
   const sparkByDept = (rows: typeof curRows, days: string[]) => {
     const byKey = new Map<string, Map<string, number>>();
     for (const r of rows) {
-      if (!byKey.has(r.departmentCode)) byKey.set(r.departmentCode, new Map());
-      byKey.get(r.departmentCode)!.set(r.reportDate, Number(r.totalRevenueCents));
+      const code = mergeDivisionCode(r.departmentCode);
+      if (!byKey.has(code)) byKey.set(code, new Map());
+      const dayMap = byKey.get(code)!;
+      // Sum across BUs (and merged divisions) that share a day.
+      dayMap.set(r.reportDate, (dayMap.get(r.reportDate) ?? 0) + Number(r.totalRevenueCents));
     }
     return (code: string) => days.map((d) => byKey.get(code)?.get(d) ?? 0);
   };
@@ -163,7 +191,7 @@ export async function GET(req: NextRequest) {
     );
   const targetByDept = new Map<string, number>();
   for (const t of deptTargets) {
-    const code = t.scopeValue ?? '';
+    const code = mergeDivisionCode(t.scopeValue ?? '');
     targetByDept.set(code, (targetByDept.get(code) ?? 0) + Number(t.targetValue));
   }
 
@@ -257,9 +285,56 @@ export async function GET(req: NextRequest) {
   const jobsByDept = new Map<string, number>();
   const oppsByDept = new Map<string, number>();
   for (const r of curRows) {
-    jobsByDept.set(r.departmentCode, (jobsByDept.get(r.departmentCode) ?? 0) + r.jobs);
-    oppsByDept.set(r.departmentCode, (oppsByDept.get(r.departmentCode) ?? 0) + r.opportunities);
+    const code = mergeDivisionCode(r.departmentCode);
+    jobsByDept.set(code, (jobsByDept.get(code) ?? 0) + r.jobs);
+    oppsByDept.set(code, (oppsByDept.get(code) ?? 0) + r.opportunities);
   }
+
+  // ─── BU-grain rollups for the drilldown ────────────────────────────────
+  // Group revenue + spark per BU per window. BUs with no current AND no LY
+  // revenue get dropped — keeps quiet/historical-only BUs out of the UI.
+  const buCur = new Map<number, number>();
+  const buLy = new Map<number, number>();
+  const buLy2 = new Map<number, number>();
+  for (const r of curRows) {
+    if (r.businessUnitId == null) continue;
+    buCur.set(r.businessUnitId, (buCur.get(r.businessUnitId) ?? 0) + Number(r.totalRevenueCents));
+  }
+  for (const r of lyRows) {
+    if (r.businessUnitId == null) continue;
+    buLy.set(r.businessUnitId, (buLy.get(r.businessUnitId) ?? 0) + Number(r.totalRevenueCents));
+  }
+  for (const r of ly2Rows) {
+    if (r.businessUnitId == null) continue;
+    buLy2.set(r.businessUnitId, (buLy2.get(r.businessUnitId) ?? 0) + Number(r.totalRevenueCents));
+  }
+
+  // Daily spark per BU (current window only — drilldown doesn't show LY spark).
+  const buSparkMap = new Map<number, Map<string, number>>();
+  for (const r of curRows) {
+    if (r.businessUnitId == null) continue;
+    if (!buSparkMap.has(r.businessUnitId)) buSparkMap.set(r.businessUnitId, new Map());
+    buSparkMap.get(r.businessUnitId)!.set(r.reportDate, Number(r.totalRevenueCents));
+  }
+  const buSparkFor = (buId: number) => curDays.map((d) => buSparkMap.get(buId)?.get(d) ?? 0);
+
+  // Bucket BUs under their department, sorted by current revenue desc.
+  const busByDept = new Map<string, Array<{ id: number; cur: number; ly: number; ly2: number }>>();
+  // Union of every BU that appears in any of the three windows — covers
+  // BUs that had revenue LY but are quiet this year (still worth showing
+  // for the compare delta).
+  const seenBuIds = new Set<number>([...buCur.keys(), ...buLy.keys(), ...buLy2.keys()]);
+  for (const buId of seenBuIds) {
+    const dept = deptByBu.get(buId);
+    if (!dept) continue; // BU not mapped (or 'service_star' which got purged)
+    const cur = buCur.get(buId) ?? 0;
+    const ly = buLy.get(buId) ?? 0;
+    const ly2 = buLy2.get(buId) ?? 0;
+    if (cur === 0 && ly === 0 && ly2 === 0) continue;
+    if (!busByDept.has(dept)) busByDept.set(dept, []);
+    busByDept.get(dept)!.push({ id: buId, cur, ly, ly2 });
+  }
+  for (const arr of busByDept.values()) arr.sort((a, b) => b.cur - a.cur);
 
   // Trend: cumulative daily totals across all depts
   const dailyCur = new Map<string, number>();
@@ -322,6 +397,71 @@ export async function GET(req: NextRequest) {
   const totalCur = curCum[curCum.length - 1] ?? 0;
   const totalLy = lyCum[lyCum.length - 1];
   const totalLy2 = ly2Cum[ly2Cum.length - 1];
+
+  // ─── "Today" daily pace — catch-up target over remaining workdays ────────
+  // Uses the business-local (Central) date so the card tracks the same basis
+  // as financial_daily.reportDate instead of rolling at UTC midnight. The
+  // target is the *catch-up* number: this month's remaining budget spread over
+  // the M–F workdays left (incl. today, minus holidays), so it rises as the
+  // team falls behind — matching the Daily Targets page. Computed from the
+  // current month regardless of the selected window (today's pace is today's
+  // pace), and hidden for windows that don't include today (e.g. last_month).
+  const todayIso = await localTodayISO();
+  const cal = monthCalendarContext(todayIso);
+
+  // This month's revenue budget: company target for the month if any, else the
+  // sum of division targets (same precedence as the window goal above).
+  const monthTargetRows = await database
+    .select({ scope: targets.scope, value: targets.targetValue })
+    .from(targets)
+    .where(
+      and(
+        eq(targets.metric, 'revenue'),
+        lte(targets.effectiveFrom, cal.monthEnd),
+        gte(targets.effectiveTo, cal.monthStart),
+      ),
+    );
+  const monthCompanyBudget = monthTargetRows
+    .filter((r) => r.scope === 'company')
+    .reduce((s, r) => s + Number(r.value), 0);
+  const monthDeptBudget = monthTargetRows
+    .filter((r) => r.scope === 'department')
+    .reduce((s, r) => s + Number(r.value), 0);
+  const monthBudget = monthCompanyBudget > 0 ? monthCompanyBudget : monthDeptBudget;
+
+  // Month-to-date and today's revenue, keyed on the business-local date.
+  const monthRevRows = await database
+    .select({ reportDate: financialDaily.reportDate, cents: financialDaily.totalRevenueCents })
+    .from(financialDaily)
+    .where(
+      and(
+        gte(financialDaily.reportDate, cal.monthStart),
+        lte(financialDaily.reportDate, todayIso),
+      ),
+    );
+  let monthRevenue = 0;
+  let todayRevenue = 0;
+  for (const r of monthRevRows) {
+    const c = Number(r.cents);
+    monthRevenue += c;
+    if (r.reportDate === todayIso) todayRevenue += c;
+  }
+
+  let today: FinancialResponse['total']['today'] = null;
+  if (monthBudget > 0 && period.cur.to >= todayIso) {
+    const remainingBudget = Math.max(monthBudget - monthRevenue, 0);
+    // Floor at 1 so a weekend/holiday (no workdays "left incl. today") doesn't
+    // divide by zero — the whole remainder lands on the next available day.
+    const remainingWorkdays = Math.max(cal.remainingWorkdays, 1);
+    const dayTarget = Math.round(remainingBudget / remainingWorkdays);
+    today = {
+      date: todayIso,
+      revenue: todayRevenue,
+      target: dayTarget,
+      percentToGoal: dayTarget > 0 ? Math.round((todayRevenue / dayTarget) * 10000) : 0,
+      isToday: true,
+    };
+  }
 
   // KPIs — close rate = closed opportunities / total opportunities,
   // avg ticket = revenue / total completed jobs (matches ST report defs).
@@ -416,9 +556,10 @@ export async function GET(req: NextRequest) {
     unsoldJobCount += 1;
     if (isHot) unsoldHotTotal += value; else unsoldWarmTotal += value;
     if (v.dept) {
-      const prior = unsoldByDept.get(v.dept) ?? { hot: 0, warm: 0 };
+      const code = mergeDivisionCode(v.dept);
+      const prior = unsoldByDept.get(code) ?? { hot: 0, warm: 0 };
       if (isHot) prior.hot += value; else prior.warm += value;
-      unsoldByDept.set(v.dept, prior);
+      unsoldByDept.set(code, prior);
     }
   }
   const unsoldTotal = unsoldHotTotal + unsoldWarmTotal;
@@ -429,23 +570,43 @@ export async function GET(req: NextRequest) {
       target: companyTarget,
       fullPeriodTarget,
       percentToGoal: companyTarget > 0 ? Math.round((totalCur / companyTarget) * 10000) : 0,
+      today,
     },
-    departments: deptList.map((d) => ({
-      code: d.code,
-      name: d.name,
-      colorToken: d.colorToken,
-      revenue: compareValue(
-        curByDept.get(d.code) ?? 0,
-        lyByDept.get(d.code),
-        ly2ByDept.get(d.code),
-        'cents',
-      ),
-      target: targetByDept.get(d.code) ?? 0,
-      jobs: jobsByDept.get(d.code) ?? 0,
-      opportunities: oppsByDept.get(d.code) ?? 0,
-      spark: curSpark(d.code),
-      lySpark: lySpark(d.code),
-    })),
+    departments: deptList
+      // Drop divisions that have been merged into another (Sales,
+      // Electrical Install) — their revenue now rolls up under the survivor.
+      .filter((d) => !isMergedAwayDivision(d.code))
+      .map((d) => ({
+        code: d.code,
+        name: divisionDisplayName(d.code, d.name),
+        colorToken: d.colorToken,
+        revenue: compareValue(
+          curByDept.get(d.code) ?? 0,
+          lyByDept.get(d.code),
+          ly2ByDept.get(d.code),
+          'cents',
+        ),
+        target: targetByDept.get(d.code) ?? 0,
+        jobs: jobsByDept.get(d.code) ?? 0,
+        opportunities: oppsByDept.get(d.code) ?? 0,
+        spark: curSpark(d.code),
+        lySpark: lySpark(d.code),
+        businessUnits: (busByDept.get(d.code) ?? []).map((bu) => ({
+          id: bu.id,
+          name: buNameById.get(bu.id) ?? `BU ${bu.id}`,
+          revenue: compareValue(bu.cur, bu.ly, bu.ly2, 'cents'),
+          spark: buSparkFor(bu.id),
+        })),
+      }))
+      // Hide quiet divisions — $0 in current AND LY AND LY2 AND no budget
+      // target. A budgeted division with $0 revenue stays visible because
+      // the "we missed goal" signal is the whole point.
+      .filter((d) => {
+        const cur = d.revenue.value;
+        const ly = d.revenue.ly ?? 0;
+        const ly2 = d.revenue.ly2 ?? 0;
+        return cur > 0 || ly > 0 || ly2 > 0 || d.target > 0;
+      }),
     trend,
     kpis: {
       closeRate: compareValue(closeRateBps, lyCloseBps, ly2CloseBps, 'bps'),
@@ -459,9 +620,10 @@ export async function GET(req: NextRequest) {
       warm: unsoldWarmTotal,
       jobCount: unsoldJobCount,
       byDept: deptList
+        .filter((d) => !isMergedAwayDivision(d.code))
         .map((d) => {
           const v = unsoldByDept.get(d.code) ?? { hot: 0, warm: 0 };
-          return { code: d.code, name: d.name, hot: v.hot, warm: v.warm };
+          return { code: d.code, name: divisionDisplayName(d.code, d.name), hot: v.hot, warm: v.warm };
         })
         .filter((d) => d.hot + d.warm > 0)
         .sort((a, b) => (b.hot + b.warm) - (a.hot + a.warm)),

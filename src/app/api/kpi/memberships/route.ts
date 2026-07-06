@@ -65,7 +65,7 @@ async function latestSnapshotsPerTier(asOf: string): Promise<TierSnapshot[]> {
 
 export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams;
-  const period = resolvePeriod({
+  const period = await resolvePeriod({
     preset: params.get('preset'),
     from: params.get('from'),
     to: params.get('to'),
