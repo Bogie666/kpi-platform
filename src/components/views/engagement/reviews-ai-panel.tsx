@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/primitives/button';
 
 type Timeframe = '1week' | '2weeks' | '1month' | '3months' | '6months' | 'year';
@@ -76,11 +76,8 @@ export function ReviewsAiPanel({ locationId }: { locationId: string }) {
     }
   };
 
-  // Auto-fire once on mount (panel only renders when explicitly opened).
-  useEffect(() => {
-    void generate();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // No auto-fire: user picks a date range first, then explicitly generates.
+  const hasRun = data !== null || loading || error !== null;
 
   return (
     <div className="flex flex-col gap-5">
@@ -105,10 +102,16 @@ export function ReviewsAiPanel({ locationId }: { locationId: string }) {
         </div>
         <div className="ml-auto">
           <Button size="sm" onClick={generate} disabled={loading}>
-            {loading ? 'Generating…' : 'Re-run'}
+            {loading ? 'Generating…' : data ? 'Re-run' : 'Generate'}
           </Button>
         </div>
       </div>
+
+      {!hasRun && (
+        <div className="text-[13px] text-muted">
+          Select a timeframe above, then hit Generate to analyze reviews from that window.
+        </div>
+      )}
 
       {error && (
         <div className="text-[12px] text-down">⚠ {error}</div>
