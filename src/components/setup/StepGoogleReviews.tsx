@@ -72,7 +72,7 @@ export function StepGoogleReviews({
   return (
     <div className="flex flex-col gap-4">
       <Panel
-        eyebrow={mode === 'wizard' ? 'Step 4 of 4' : 'Settings'}
+        eyebrow={mode === 'wizard' ? 'Step 5 of 6' : 'Settings'}
         title="Google reviews"
         right={
           <div className="flex items-center gap-2">
@@ -82,7 +82,7 @@ export function StepGoogleReviews({
               </Button>
             )}
             <Button variant="primary" disabled={saving} onClick={() => submit(false)}>
-              {saving ? 'Saving…' : mode === 'wizard' ? 'Finish setup' : 'Save changes'}
+              {saving ? 'Saving…' : mode === 'wizard' ? 'Save and continue' : 'Save changes'}
             </Button>
           </div>
         }

@@ -66,7 +66,7 @@ export function StepServiceTitan({
 
   return (
     <Panel
-      eyebrow="Step 2 of 4"
+      eyebrow="Step 2 of 6"
       title="ServiceTitan"
       right={
         <div className="flex items-center gap-2">

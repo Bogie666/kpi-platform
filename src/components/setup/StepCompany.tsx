@@ -48,7 +48,7 @@ export function StepCompany({
 
   return (
     <Panel
-      eyebrow="Step 1 of 4"
+      eyebrow="Step 1 of 6"
       title="Company"
       right={
         <Button variant="primary" disabled={saving} onClick={submit}>

@@ -23,8 +23,10 @@ import {
   type StepTechnicianReportsValues,
   type TechnicianReportConfigDraft,
 } from './StepTechnicianReports';
+import { StepWeather, type WeatherLocationDraft } from './StepWeather';
 
-const STEP_LABELS = ['Company', 'ServiceTitan', 'Divisions', 'Technician reports', 'Google reviews'];
+const STEP_LABELS = ['Company', 'ServiceTitan', 'Divisions', 'Technician reports', 'Google reviews', 'Weather'];
+const LAST_STEP = STEP_LABELS.length;
 
 interface SetupState {
   step: number;
@@ -48,7 +50,7 @@ export function SetupWizard() {
       if (!res.ok) throw new Error(`Failed to load setup state: ${res.status}`);
       const s = (await res.json()) as SetupState;
       setState(s);
-      setActiveStep(Math.min(s.step, 5));
+      setActiveStep(Math.min(s.step, LAST_STEP));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -66,7 +68,7 @@ export function SetupWizard() {
       const j = (await res.json()) as { ok?: boolean; error?: string; step?: number; completed?: boolean };
       if (!j.ok) throw new Error(j.error ?? `Failed (${res.status})`);
       await load();
-      setActiveStep(Math.min(step + 1, 5));
+      setActiveStep(Math.min(step + 1, LAST_STEP));
       // On completion, stay on this page and surface the "all done" panel
       // with a "Sync now" affordance — the user can kick off the first
       // sync without waiting up to 15 minutes for the cron tick.
@@ -85,7 +87,7 @@ export function SetupWizard() {
 
   return (
     <div className="flex flex-col gap-6 max-w-5xl">
-      <Stepper active={activeStep} furthest={Math.min(state.step, 5)} onJump={setActiveStep} />
+      <Stepper active={activeStep} furthest={Math.min(state.step, LAST_STEP)} onJump={setActiveStep} />
 
       {error && (
         <div className="text-[12px] text-down bg-down-bg border border-down/30 rounded-btn px-3 py-2">
@@ -205,8 +207,35 @@ export function SetupWizard() {
                 5,
                 'google-reviews',
                 payload.skip ? {} : (payload.creds as unknown as Record<string, unknown>),
-                true,
               );
+            } catch (err) {
+              setError(err instanceof Error ? err.message : String(err));
+              setSaving(false);
+            }
+          }}
+        />
+      )}
+
+      {activeStep === 6 && (
+        <StepWeather
+          saving={saving}
+          initialLocations={[]}
+          onSave={async (payload: { locations: WeatherLocationDraft[]; skip: boolean }) => {
+            setSaving(true);
+            setError(null);
+            try {
+              if (!payload.skip) {
+                // Reuse the admin endpoint — it geocodes zips server-side
+                // (all-or-nothing) and writes company_config weather_cities.
+                const res = await fetch('/api/admin/weather-config', {
+                  method: 'POST',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ locations: payload.locations }),
+                });
+                const j = (await res.json()) as { ok?: boolean; error?: string };
+                if (!j.ok) throw new Error(j.error ?? 'Failed to save weather locations');
+              }
+              await postStep(6, 'weather', {}, true);
             } catch (err) {
               setError(err instanceof Error ? err.message : String(err));
               setSaving(false);

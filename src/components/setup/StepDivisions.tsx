@@ -148,7 +148,7 @@ export function StepDivisions({
   return (
     <div className="flex flex-col gap-4">
       <Panel
-        eyebrow="Step 3 of 4"
+        eyebrow="Step 3 of 6"
         title="Divisions & business units"
         right={
           <div className="flex items-center gap-2">
