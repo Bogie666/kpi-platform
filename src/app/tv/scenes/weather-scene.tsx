@@ -73,6 +73,9 @@ export function WeatherScene() {
   // Plug-and-play: header derives from whatever cities the tenant configured
   // (company_config `weather_cities`) instead of hardcoded market names.
   const cityNames = data.cities.map((c) => c.name).join(' · ');
+  // 1-3 configured locations — let the grid breathe at any count.
+  const cols =
+    data.cities.length <= 1 ? 'grid-cols-1' : data.cities.length === 2 ? 'grid-cols-2' : 'grid-cols-3';
 
   return (
     <div className="flex flex-col h-full gap-6">
@@ -82,15 +85,15 @@ export function WeatherScene() {
         right="Open-Meteo"
       />
 
-      {/* Three big current-condition cards */}
-      <div className="grid grid-cols-3 gap-6 flex-[1.1]">
+      {/* Big current-condition cards — one per configured location */}
+      <div className={`grid ${cols} gap-6 flex-[1.1]`}>
         {data.cities.map((city) => (
           <CityCard key={city.key} city={city} />
         ))}
       </div>
 
       {/* 7-day forecast strip — one column per city, aligned by day */}
-      <div className="grid grid-cols-3 gap-6 flex-1">
+      <div className={`grid ${cols} gap-6 flex-1`}>
         {data.cities.map((city) => (
           <ForecastStrip key={city.key} city={city} />
         ))}

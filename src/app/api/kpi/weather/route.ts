@@ -67,7 +67,7 @@ async function loadCities(): Promise<CityConfig[]> {
         (c) => c && typeof c.key === 'string' && typeof c.name === 'string'
           && Number.isFinite(c.latitude) && Number.isFinite(c.longitude),
       );
-      if (valid.length > 0) return valid;
+      if (valid.length > 0) return valid.slice(0, 3);
     }
   } catch {
     // fall through to defaults — weather must never hard-fail the TV

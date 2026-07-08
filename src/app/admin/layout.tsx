@@ -41,6 +41,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <AdminNavLink href="/admin/division-roles">Division → role</AdminNavLink>
             <AdminNavLink href="/admin/employees">Employees</AdminNavLink>
             <AdminNavLink href="/admin/sync-status">Sync status</AdminNavLink>
+            <AdminNavLink href="/admin/weather">Weather</AdminNavLink>
           </nav>
 
           <div className="ml-auto flex items-center gap-3">
