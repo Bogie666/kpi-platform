@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import { redirect } from 'next/navigation';
 import { DashboardClient } from './dashboard-client';
 import { isSetupCompleted } from '@/lib/config-service';
+import { DEMO_MODE } from '@/lib/demo';
 
 // The dashboard is entirely URL-state + client-fetched KPI data. Pre-rendering
 // gains nothing and has caused Vercel edge routing to intermittently 503 on
@@ -21,7 +22,7 @@ export default async function DashboardPage() {
   // a separate read + check.
   let completed = false;
   try {
-    completed = await isSetupCompleted();
+    completed = DEMO_MODE || (await isSetupCompleted());
   } catch {
     // DB unreachable (e.g. DATABASE_URL not wired yet) — fall through to
     // the dashboard; the panels themselves surface the connection error.

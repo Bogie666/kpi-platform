@@ -82,6 +82,19 @@ export interface ResourceQueryArgs {
   cfg?: StConfig;
 }
 
+/**
+ * Build-time capture hook. When set (only by scripts/capture-demo-fixtures.ts),
+ * every resource read is served from synthetic in-memory data instead of the
+ * live ServiceTitan API — this lets the four ST-live KPI routes run their real
+ * logic against fake records so we can snapshot correctly-shaped demo fixtures
+ * with no credentials or network access. Never set in production.
+ */
+type CaptureFetcher = (args: ResourceQueryArgs) => unknown[];
+let __captureFetcher: CaptureFetcher | null = null;
+export function __setResourceFetcherForCapture(fn: CaptureFetcher | null): void {
+  __captureFetcher = fn;
+}
+
 function encodeQuery(q: Record<string, string | number | boolean | string[] | undefined>): string {
   const parts: string[] = [];
   for (const [k, v] of Object.entries(q)) {
@@ -100,6 +113,10 @@ function encodeQuery(q: Record<string, string | number | boolean | string[] | un
  * Caller can break early; pagination follows until `hasMore === false`.
  */
 export async function* iterateResource<T = unknown>(args: ResourceQueryArgs): AsyncGenerator<T> {
+  if (__captureFetcher) {
+    for (const item of __captureFetcher(args)) yield item as T;
+    return;
+  }
   const cfg = args.cfg ?? (await readStConfig());
   const token = await getAccessToken(cfg);
   const pageSize = args.pageSize ?? DEFAULT_PAGE_SIZE;

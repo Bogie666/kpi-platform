@@ -4,6 +4,7 @@
  * Response shape identical to DATA-SPEC §GET /api/kpi/financial.
  */
 import { NextResponse } from 'next/server';
+import { demoResponse } from '@/lib/demo';
 import type { NextRequest } from 'next/server';
 import { and, eq, gte, lte, sql, desc } from 'drizzle-orm';
 
@@ -116,6 +117,8 @@ function compareValue(
 }
 
 export async function GET(req: NextRequest) {
+  const demo = demoResponse('financial', { preset: req.nextUrl.searchParams.get('preset') });
+  if (demo) return demo;
   await loadDivisionModel();
   const params = req.nextUrl.searchParams;
   const period = await resolvePeriod({

@@ -3,6 +3,7 @@
  * into the existing response shape.
  */
 import { NextResponse } from 'next/server';
+import { demoResponse } from '@/lib/demo';
 import type { NextRequest } from 'next/server';
 import { and, eq, gte, lte, sql, asc } from 'drizzle-orm';
 
@@ -45,6 +46,8 @@ async function aggregateDaily(window: Window) {
 }
 
 export async function GET(req: NextRequest) {
+  const demo = demoResponse('callcenter', { preset: req.nextUrl.searchParams.get('preset') });
+  if (demo) return demo;
   const params = req.nextUrl.searchParams;
   const period = await resolvePeriod({
     preset: params.get('preset'),

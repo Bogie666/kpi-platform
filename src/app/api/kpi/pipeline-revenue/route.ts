@@ -19,6 +19,7 @@
  * Cached client-side for 2 min; ST calls dominate runtime (~5-10 sec).
  */
 import { NextResponse } from 'next/server';
+import { demoResponse } from '@/lib/demo';
 import type { NextRequest } from 'next/server';
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/db/client';
@@ -89,6 +90,8 @@ function lastDayOfMonthISO(localToday: string): string {
 }
 
 export async function GET(req: NextRequest) {
+  const demo = demoResponse('pipeline-revenue', { preset: req.nextUrl.searchParams.get('preset') });
+  if (demo) return demo;
   const today = await localTodayISO();
   const endDateParam = req.nextUrl.searchParams.get('endDate');
   // `endDate` is inclusive; convert to an exclusive "starts before" by

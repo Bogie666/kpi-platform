@@ -9,6 +9,7 @@
  * fall back to technician_daily for the sparkline data only.
  */
 import { NextResponse } from 'next/server';
+import { demoResponse } from '@/lib/demo';
 import type { NextRequest } from 'next/server';
 import { and, eq, asc } from 'drizzle-orm';
 
@@ -140,6 +141,8 @@ function sortByRole(agg: TechAgg[], primary: Role['sortKey']): TechAgg[] {
 }
 
 export async function GET(req: NextRequest) {
+  const demo = demoResponse('technicians', { preset: req.nextUrl.searchParams.get('preset'), role: req.nextUrl.searchParams.get('role') });
+  if (demo) return demo;
   const params = req.nextUrl.searchParams;
   const roleCode = params.get('role') ?? 'comfort_advisor';
 

@@ -3,6 +3,7 @@
  * active counts from the latest row per tier, plus 12-month history.
  */
 import { NextResponse } from 'next/server';
+import { demoResponse } from '@/lib/demo';
 import type { NextRequest } from 'next/server';
 import { and, lte, asc } from 'drizzle-orm';
 
@@ -64,6 +65,8 @@ async function latestSnapshotsPerTier(asOf: string): Promise<TierSnapshot[]> {
 }
 
 export async function GET(req: NextRequest) {
+  const demo = demoResponse('memberships', { preset: req.nextUrl.searchParams.get('preset') });
+  if (demo) return demo;
   const params = req.nextUrl.searchParams;
   const period = await resolvePeriod({
     preset: params.get('preset'),

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { demoResponse } from '@/lib/demo';
 import { getDivisions, getPublicConfig, isSetupCompleted } from '@/lib/config-service';
 
 export const runtime = 'nodejs';
@@ -11,6 +12,8 @@ export const dynamic = 'force-dynamic';
  * a separate fetch.
  */
 export async function GET() {
+  const demo = demoResponse('config');
+  if (demo) return demo;
   const [config, divisions, completed] = await Promise.all([
     getPublicConfig(),
     getDivisions(true),

@@ -12,6 +12,7 @@
  * when unset.
  */
 import { NextResponse } from 'next/server';
+import { demoResponse } from '@/lib/demo';
 import { getConfigTyped } from '@/lib/config-service';
 
 export const dynamic = 'force-dynamic';
@@ -136,6 +137,8 @@ async function fetchCity(city: CityConfig, tz: string): Promise<CityWeather> {
 }
 
 export async function GET() {
+  const demo = demoResponse('weather');
+  if (demo) return demo;
   const [cityList, tz] = await Promise.all([loadCities(), loadTz()]);
   const cities = await Promise.all(cityList.map((c) => fetchCity(c, tz)));
   const body: WeatherResponse = { cities, asOf: new Date().toISOString() };

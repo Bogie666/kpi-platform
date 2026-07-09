@@ -3,6 +3,7 @@ import { GeistSans } from 'geist/font/sans';
 import { GeistMono } from 'geist/font/mono';
 import { Providers } from './providers';
 import { getConfig, getDivisions } from '@/lib/config-service';
+import { DEMO_MODE, demoCompanyName } from '@/lib/demo';
 import '@/styles/globals.css';
 
 export const dynamic = 'force-dynamic';
@@ -12,7 +13,7 @@ export async function generateMetadata(): Promise<Metadata> {
   // platform name so the title is sensible before setup is done.
   let companyName: string | null = null;
   try {
-    companyName = await getConfig('company_name');
+    companyName = DEMO_MODE ? demoCompanyName() : await getConfig('company_name');
   } catch {
     /* DB unreachable — fall through to defaults */
   }

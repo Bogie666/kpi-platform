@@ -11,6 +11,7 @@
  * Same `?preset=` shape as /api/kpi/financial.
  */
 import { NextResponse } from 'next/server';
+import { demoResponse } from '@/lib/demo';
 import type { NextRequest } from 'next/server';
 import { getNewCustomers, type NewCustomersResult } from '@/lib/kpi/new-customers';
 
@@ -20,6 +21,8 @@ export const maxDuration = 60;
 export type { NewCustomersResult as NewCustomersResponse };
 
 export async function GET(req: NextRequest) {
+  const demo = demoResponse('new-customers', { preset: req.nextUrl.searchParams.get('preset') });
+  if (demo) return demo;
   const params = req.nextUrl.searchParams;
   const force = params.get('fresh') === '1';
   const data = await getNewCustomers(

@@ -8,6 +8,7 @@
  * the cached rows; recent reviews come back DESC by reviewDate.
  */
 import { NextResponse } from 'next/server';
+import { demoResponse } from '@/lib/demo';
 import type { NextRequest } from 'next/server';
 import { desc, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
@@ -68,6 +69,8 @@ interface SyncStatusRow {
 }
 
 export async function GET(_req: NextRequest) {
+  const demo = demoResponse('reviews');
+  if (demo) return demo;
   const database = db();
 
   const [allRows, syncStatusRows] = await Promise.all([

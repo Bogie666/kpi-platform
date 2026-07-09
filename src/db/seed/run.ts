@@ -61,28 +61,42 @@ export interface SeedReport {
   estimateAnalysis: number;
 }
 
-export async function runSeed(log: (msg: string) => void = console.log): Promise<SeedReport> {
+export async function runSeed(
+  log: (msg: string) => void = console.log,
+  injectedDb?: ReturnType<typeof drizzle<typeof schema>>,
+): Promise<SeedReport> {
   // The seed data is Lex-specific demo content (BU ids, technician names,
   // sample financials). On a fresh kpi-platform deployment the setup
   // wizard is the source of truth for divisions + BUs, so seeding would
   // overwrite the real values. Gate behind an explicit env flag in
   // production to prevent accidental wipes.
-  if (process.env.NODE_ENV === 'production' && process.env.ALLOW_DEMO_SEED !== 'true') {
+  if (
+    !injectedDb &&
+    process.env.NODE_ENV === 'production' &&
+    process.env.ALLOW_DEMO_SEED !== 'true'
+  ) {
     throw new Error(
       'runSeed() is a demo/dev-only fixture. Set ALLOW_DEMO_SEED=true to override.',
     );
   }
 
-  const url =
-    process.env.DATABASE_URL_UNPOOLED ??
-    process.env.POSTGRES_URL_NON_POOLING ??
-    process.env.DATABASE_URL ??
-    process.env.POSTGRES_URL;
-  if (!url) {
-    throw new Error('DATABASE_URL not set.');
+  let db: ReturnType<typeof drizzle<typeof schema>>;
+  if (injectedDb) {
+    // Capture/build-time path: caller supplies a Drizzle instance (e.g. one
+    // backed by in-process PGlite). No network client is constructed.
+    db = injectedDb;
+  } else {
+    const url =
+      process.env.DATABASE_URL_UNPOOLED ??
+      process.env.POSTGRES_URL_NON_POOLING ??
+      process.env.DATABASE_URL ??
+      process.env.POSTGRES_URL;
+    if (!url) {
+      throw new Error('DATABASE_URL not set.');
+    }
+    const client = neon(url);
+    db = drizzle(client, { schema });
   }
-  const client = neon(url);
-  const db = drizzle(client, { schema });
 
   log('• Wiping working tables…');
   await db.execute(sql`TRUNCATE TABLE

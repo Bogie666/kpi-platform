@@ -14,7 +14,17 @@ import * as schema from './schema';
  */
 let _db: ReturnType<typeof drizzle<typeof schema>> | null = null;
 
+// Test/capture hook: allows a build-time script (e.g. the demo fixture
+// capture) to inject an alternative Drizzle instance — such as one backed by
+// in-process PGlite — without any route handler code changing. Runtime on
+// Vercel never calls this, so production behaviour is identical to before.
+let _injected: unknown = null;
+export function __setDbForCapture(instance: unknown) {
+  _injected = instance;
+}
+
 export function db() {
+  if (_injected) return _injected as ReturnType<typeof drizzle<typeof schema>>;
   if (_db) return _db;
   const url = process.env.DATABASE_URL;
   if (!url) {

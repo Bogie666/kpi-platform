@@ -6,6 +6,7 @@
  * when CRON_SECRET is set in env (see vercel.json). Unauthed callers get 401.
  */
 import { NextResponse } from 'next/server';
+import { DEMO_MODE } from '@/lib/demo';
 import type { NextRequest } from 'next/server';
 import { and, desc, eq } from 'drizzle-orm';
 import { db } from '@/db/client';
@@ -198,6 +199,7 @@ async function lastAttemptAt(source: string): Promise<Date | null> {
 }
 
 export async function GET(req: NextRequest) {
+  if (DEMO_MODE) return NextResponse.json({ ok: true, demo: true, skipped: 'sync disabled in demo mode' });
   if (!authorized(req)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }

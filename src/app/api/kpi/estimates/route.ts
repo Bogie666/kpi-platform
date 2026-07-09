@@ -12,6 +12,7 @@
  * directly. Single-option jobs don't contribute to the tier panel.
  */
 import { NextResponse } from 'next/server';
+import { demoResponse } from '@/lib/demo';
 import type { NextRequest } from 'next/server';
 import { and, asc, gte, lte } from 'drizzle-orm';
 
@@ -124,6 +125,8 @@ function buildJobAggs(rows: RawRow[]): JobAgg[] {
 }
 
 export async function GET(req: NextRequest) {
+  const demo = demoResponse('estimates', { preset: req.nextUrl.searchParams.get('preset') });
+  if (demo) return demo;
   const params = req.nextUrl.searchParams;
   const period = await resolvePeriod({
     preset: params.get('preset') ?? 'ttm',

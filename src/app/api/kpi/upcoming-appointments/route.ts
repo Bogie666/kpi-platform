@@ -4,6 +4,7 @@
  * from ST on each request (small dataset, a few hundred rows max).
  */
 import { NextResponse } from 'next/server';
+import { demoResponse } from '@/lib/demo';
 import { db } from '@/db/client';
 import { businessUnits } from '@/db/schema';
 import { collectResource } from '@/lib/sync/servicetitan/raw-client';
@@ -98,6 +99,8 @@ function localDayStartUTC(localDay: string, addDays: number, tz: string): string
 }
 
 export async function GET() {
+  const demo = demoResponse('upcoming-appointments');
+  if (demo) return demo;
   const tz = await getBusinessTz();
   const today = await localTodayISO();
   const windowEnd = shiftDate(today, 7);

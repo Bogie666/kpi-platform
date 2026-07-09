@@ -7,6 +7,7 @@
  * Required env: ANTHROPIC_API_KEY.
  */
 import { NextResponse } from 'next/server';
+import { DEMO_MODE } from '@/lib/demo';
 import type { NextRequest } from 'next/server';
 import { desc } from 'drizzle-orm';
 import { db } from '@/db/client';
@@ -66,6 +67,28 @@ const TIMEFRAME_LABEL: Record<Timeframe, string> = {
 };
 
 export async function POST(req: NextRequest) {
+  if (DEMO_MODE) {
+    return NextResponse.json({
+      data: {
+        timeframe: '3months', timeframeLabel: 'Last 3 Months', locationId: 'all',
+        totalReviews: 214, avgRating: 4.9,
+        ratingDistribution: { '5': 196, '4': 12, '3': 3, '2': 1, '1': 2 },
+        commonPraise: ['Technicians described as punctual, courteous, and thorough', 'Clear upfront pricing with no surprises', 'Same-day scheduling repeatedly called out'],
+        commonComplaints: ['A few customers wanted earlier arrival windows'],
+        keyThemes: [
+          { theme: 'Professionalism', sentiment: 'positive', frequency: 87, examples: ['Tech wore shoe covers and walked me through everything'] },
+          { theme: 'Speed of service', sentiment: 'positive', frequency: 54, examples: ['Called at 8am, fixed by noon'] },
+        ],
+        technicianMentions: [
+          { name: 'Marcus Vega', mentions: 14, sentiment: 'positive' },
+          { name: 'Jenna Rhodes', mentions: 11, sentiment: 'positive' },
+        ],
+        recommendations: ['Keep highlighting same-day availability in ads', 'Feature top-mentioned technicians in review responses'],
+        sentimentScore: 94,
+        generatedAt: new Date().toISOString(), modelUsed: 'demo-fixture',
+      },
+    });
+  }
   if (!ANTHROPIC_API_KEY) {
     return NextResponse.json(
       { error: 'ANTHROPIC_API_KEY env var is not set' },

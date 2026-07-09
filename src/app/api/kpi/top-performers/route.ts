@@ -8,6 +8,7 @@
  *     → { byRole: [{ role, top: [T, T, T] }, ...], meta }
  */
 import { NextResponse } from 'next/server';
+import { demoResponse } from '@/lib/demo';
 import type { NextRequest } from 'next/server';
 import { and, asc, eq, sql } from 'drizzle-orm';
 
@@ -51,6 +52,8 @@ function normalize(name: string): string {
 }
 
 export async function GET(req: NextRequest) {
+  const demo = demoResponse('top-performers', { preset: req.nextUrl.searchParams.get('preset') });
+  if (demo) return demo;
   const params = req.nextUrl.searchParams;
   const period = await resolvePeriod({
     preset: params.get('preset'),
