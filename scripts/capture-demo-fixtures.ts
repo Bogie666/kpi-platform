@@ -17,6 +17,8 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import * as schema from '../src/db/schema';
 import { runSeed } from '../src/db/seed/run';
+import { TECHNICIANS, CALL_AGENTS, DEPARTMENTS } from '../src/db/seed/data';
+import { resolvePeriod } from '../src/lib/period';
 import { __setDbForCapture } from '../src/db/client';
 import { __setResourceFetcherForCapture } from '../src/lib/sync/servicetitan/raw-client';
 import { syntheticStFetch } from './synthetic-st';
@@ -94,6 +96,106 @@ async function main() {
 
   const PRESETS = ['today', 'l7', 'mtd', 'qtd', 'ytd', 'l30', 'l90', 'ttm', 'last_month'];
   const ROLES = ['all', 'comfort_advisor', 'hvac_tech', 'hvac_maintenance', 'commercial_hvac', 'plumbing', 'electrical'];
+
+  // ── Augment the seed so every panel is populated ──────────────────────────
+  // 1. technician_period: the Technicians tab + Top Performers podium read this
+  //    table but the base seed never fills it. Insert one row per (window, tech)
+  //    for every preset's cur/ly/ly2 window, scaling the tech's MTD numbers by
+  //    window length so bigger periods show proportionally bigger output.
+  console.log('• Augmenting technician_period for all preset windows…');
+  const dayCount = (from: string, to: string) =>
+    Math.max(1, Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1);
+  const esc = (s: string) => s.replace(/'/g, "''");
+  {
+    const stmts: string[] = [];
+    for (const p of PRESETS) {
+      const period = await resolvePeriod({ preset: p });
+      const windows = [
+        { w: period.cur, f: 1.0 },
+        { w: period.ly, f: 0.87 },
+        { w: period.ly2, f: 0.76 },
+      ];
+      for (const { w, f } of windows) {
+        const scale = (dayCount(w.from, w.to) / 21) * f;
+        for (const t of TECHNICIANS) {
+          const revenueCents = Math.round(t.revenue * 100 * scale);
+          const jobs = Math.max(1, Math.round(t.jobs * scale));
+          const closeBps = Math.round(t.closeRate * 100 * (f === 1 ? 1 : 0.94));
+          const opps = Math.max(jobs, Math.round(jobs / Math.max(0.05, t.closeRate / 100)));
+          const closed = Math.max(1, Math.round(opps * (closeBps / 10000)));
+          const avgTicketCents = Math.round(t.avgTicket * 100);
+          const members = Math.max(0, Math.round(t.memberships * scale));
+          stmts.push(
+            `INSERT INTO technician_period (role_code, period_start, period_end, employee_id, employee_name,
+              completed_jobs, completed_revenue_cents, opportunity, sales_opportunity, closed_opportunities,
+              close_rate_bps, total_sales_cents, total_job_average_cents, options_per_opportunity_x100,
+              memberships_sold, leads_set, total_lead_sales_cents, source_report_id)
+             VALUES ('${t.role}', '${w.from}', '${w.to}', ${t.id}, '${esc(t.name)}',
+              ${jobs}, ${revenueCents}, ${opps}, ${opps}, ${closed},
+              ${closeBps}, ${revenueCents}, ${avgTicketCents}, ${180 + (t.id % 90)},
+              ${members}, ${Math.round(jobs * 0.18)}, ${Math.round(revenueCents * 0.12)}, 'seed-demo')
+             ON CONFLICT DO NOTHING;`,
+          );
+        }
+      }
+    }
+    for (const s of stmts) await pg.exec(s);
+    console.log(`   inserted up to ${stmts.length} technician_period rows`);
+  }
+
+  // 2. call_center_daily: backfill ~2.3 years so LY/LY2 compares and the
+  //    last_month preset all have data (base seed only writes one day).
+  console.log('• Backfilling call_center_daily 2024-01-01 → 2026-04-21…');
+  {
+    const stmts: string[] = [];
+    const start = Date.parse('2024-01-01T00:00:00Z');
+    const end = Date.parse('2026-04-21T00:00:00Z');
+    for (let ts = start; ts <= end; ts += 86_400_000) {
+      const d = new Date(ts);
+      const iso = d.toISOString().slice(0, 10);
+      const dow = d.getUTCDay();
+      const wk = dow === 0 ? 0.35 : dow === 6 ? 0.55 : 1.0;
+      // gentle YoY growth: 2024 ≈ 0.82x, 2025 ≈ 0.91x, 2026 = 1.0x
+      const yr = d.getUTCFullYear();
+      const g = yr === 2024 ? 0.82 : yr === 2025 ? 0.91 : 1.0;
+      // deterministic wobble ±10%
+      const wob = 0.9 + ((ts / 86_400_000) % 7) * 0.03;
+      for (const a of CALL_AGENTS) {
+        const calls = Math.max(2, Math.round(a.calls * wk * g * wob * 0.45));
+        const booked = Math.max(1, Math.round(calls * (a.ratePct / 100)));
+        stmts.push(
+          `INSERT INTO call_center_daily (employee_name, report_date, total_calls, calls_booked,
+            booking_rate_bps, avg_wait_sec, avg_call_time_sec, abandon_rate_bps, source_report_id)
+           VALUES ('${esc(a.name)}', '${iso}', ${calls}, ${booked},
+            ${Math.round((booked / calls) * 10000)}, ${28 + (ts / 86_400_000) % 20}, ${210 + (ts / 86_400_000) % 60}, ${250 + (ts / 86_400_000) % 140}, 'seed-demo')
+           ON CONFLICT (employee_name, report_date) DO NOTHING;`,
+        );
+      }
+    }
+    for (const s of stmts) await pg.exec(s);
+    console.log(`   inserted up to ${stmts.length} call_center_daily rows`);
+  }
+
+  // 3. financial_daily "today" rows: the base seed leaves the capture date
+  //    empty, so Today panels + the last spark point render as zero. Clone
+  //    yesterday at ~62% (mid-afternoon partial day).
+  console.log('• Inserting financial_daily rows for today (partial day)…');
+  await pg.exec(`
+    INSERT INTO financial_daily (department_code, business_unit_id, report_date,
+      total_revenue_cents, jobs, opportunities, closed_opportunities, source_report_id)
+    SELECT department_code, business_unit_id, DATE '2026-04-21',
+      CAST(total_revenue_cents * 0.62 AS bigint),
+      GREATEST(1, CAST(jobs * 0.6 AS int)),
+      GREATEST(1, CAST(opportunities * 0.6 AS int)),
+      CAST(closed_opportunities * 0.6 AS int), 'seed-demo-today'
+    FROM financial_daily WHERE report_date = DATE '2026-04-20'
+    ON CONFLICT (business_unit_id, report_date) DO UPDATE
+      SET total_revenue_cents = EXCLUDED.total_revenue_cents,
+          jobs = EXCLUDED.jobs,
+          opportunities = EXCLUDED.opportunities,
+          closed_opportunities = EXCLUDED.closed_opportunities;
+  `);
+  void DEPARTMENTS;
 
   const captured: Record<string, unknown> = {};
 
