@@ -27,7 +27,7 @@ import {
 } from '@/lib/sync/servicetitan/estimate-analysis-report';
 import { syncStTechnicians, ST_TECHNICIANS_SOURCE } from '@/lib/sync/servicetitan/employees';
 import { syncGoogleReviews, GOOGLE_REVIEWS_SOURCE } from '@/lib/sync/google/reviews-sync';
-import { trailingDays } from '@/lib/sync/window';
+
 
 function mtdWindow(): { from: string; to: string } {
   const today = new Date();
@@ -130,7 +130,14 @@ const SOURCES: SourceConfig[] = [
   {
     source: FINANCIAL_SOURCE,
     minIntervalMin: 30,
-    run: () => syncFinancial(trailingDays(7), 'cron'),
+    // Re-sync the whole current month each tick, not just trailing 7 days.
+    // ST invoice/report totals for older dates keep drifting (adjustments,
+    // voids, credits, reclassed items) well after they leave a 7-day window.
+    // With trailingDays(7) days 1..N-7 were written once then frozen,
+    // overstating MTD revenue. Upsert is idempotent on
+    // (business_unit_id, report_date), MTD is small, and this matches the
+    // mtdWindow() cadence callcenter + jobs already use in this file.
+    run: () => syncFinancial(mtdWindow(), 'cron'),
   },
   {
     source: TECHNICIAN_REPORTS_SOURCE,

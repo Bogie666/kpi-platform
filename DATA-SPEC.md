@@ -465,6 +465,8 @@ How ST reports map to tables. Each row here becomes one sync function.
 | 392071756 | Technician | `plumbing` | `technician_daily` | `(employee_id, report_date, 'plumbing')` | |
 | 392071757 | Technician | `electrical` | `technician_daily` | `(employee_id, report_date, 'electrical')` | |
 | 2665 | Operations | `call_center` | `call_center_daily` | `(employee_name, report_date)` | |
+| — (resource API) | Operations | `call_center` | `call_reason_daily` | `(report_date, reason_name)` | Lead calls per ST call-reason; unbooked = lead_calls − lead_calls_booked |
+| — (resource API) | Operations | `call_center` | `job_cancel_reason_daily` | `(report_date, reason_name)` | Canceled jobs per cancel reason via `/jpm/v2/jobs` + `/jobs/cancel-reasons` batch lookup |
 | 128062649 | Accounting | `financial` | `financial_daily` | `(department_code, report_date)` | |
 | 371386314 | Marketing | `memberships` | `membership_daily` | `(membership_name, report_date)` | |
 | 346111296 | Operations | `unsold_estimates` | `unsold_estimates` | `estimate_id` | Individual records, not aggregated |

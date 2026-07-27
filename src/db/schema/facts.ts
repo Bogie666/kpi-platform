@@ -102,7 +102,59 @@ export const callCenterDaily = pgTable(
   }),
 );
 
-/** Hourly call-center pacing — used for the "Calls vs bookings" chart today. */
+/**
+ * Call reasons daily — per-(date, reason) lead-call counts. Powers the
+ * "Unbooked leads by reason" list on the Call Center page. `reasonName`
+ * is ST's call-reason taxonomy (what the customer called about, e.g.
+ * "No Cooling"), not a CSR's not-booked excuse — ST has no structured
+ * field for the latter.
+ */
+export const callReasonDaily = pgTable(
+  'call_reason_daily',
+  {
+    id: serial('id').primaryKey(),
+    reportDate: date('report_date').notNull(),
+    reasonName: text('reason_name').notNull(),
+
+    /** Inbound calls with reason.lead = true for this reason/day. */
+    leadCalls: integer('lead_calls').notNull().default(0),
+    /** Subset of leadCalls with a jobNumber attached (booked). */
+    leadCallsBooked: integer('lead_calls_booked').notNull().default(0),
+
+    sourceReportId: text('source_report_id').notNull(),
+    syncedAt: timestamp('synced_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    uniq: uniqueIndex('call_reason_daily_uniq').on(t.reportDate, t.reasonName),
+    dateIdx: index('call_reason_daily_date_idx').on(t.reportDate),
+  }),
+);
+
+/**
+ * Job cancellations by reason — per-(date, reason) counts. The date is the
+ * job's modifiedOn bucketed to local time, matching the approximation the
+ * Cancellations KPI already uses (a status flip is the most common
+ * modification on a canceled job). Reason names come from ST's
+ * /jobs/cancel-reasons batch lookup.
+ */
+export const jobCancelReasonDaily = pgTable(
+  'job_cancel_reason_daily',
+  {
+    id: serial('id').primaryKey(),
+    reportDate: date('report_date').notNull(),
+    reasonName: text('reason_name').notNull(),
+
+    canceledJobs: integer('canceled_jobs').notNull().default(0),
+
+    sourceReportId: text('source_report_id').notNull(),
+    syncedAt: timestamp('synced_at').defaultNow().notNull(),
+  },
+  (t) => ({
+    uniq: uniqueIndex('job_cancel_reason_daily_uniq').on(t.reportDate, t.reasonName),
+    dateIdx: index('job_cancel_reason_daily_date_idx').on(t.reportDate),
+  }),
+);
+
 export const callCenterHourly = pgTable(
   'call_center_hourly',
   {

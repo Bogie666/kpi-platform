@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { ChevronRight, TriangleAlert } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ChevronRight, LoaderCircle, TriangleAlert } from 'lucide-react';
 
 import { useDailyTargets } from '@/lib/hooks/use-daily-targets';
 import { SectionHead } from '@/components/primitives/section-head';
@@ -31,8 +31,8 @@ const STATUS_LABEL: Record<PaceStatus, string> = {
 };
 
 export function TargetsView() {
-  const { data, isLoading, error, refetch } = useDailyTargets();
-  const [creditBacklog, setCreditBacklog] = useState(true);
+  const { data, isLoading, isFetching, error, refetch } = useDailyTargets();
+  const [creditBacklog, setCreditBacklog] = useState(false);
 
   // Both variants come precomputed in the payload, so toggling is instant.
   const view = data
@@ -50,6 +50,16 @@ export function TargetsView() {
           data && (
             <>
               <BacklogToggle value={creditBacklog} onChange={setCreditBacklog} />
+              {isFetching && (
+                <span
+                  className="flex items-center gap-1.5 text-meta text-muted"
+                  role="status"
+                  aria-label="Refreshing data"
+                >
+                  <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+                  <span className="hidden md:inline">refreshing</span>
+                </span>
+              )}
               <span className="text-meta font-mono text-muted hidden md:inline">
                 as of {fmtAsOf(data.asOf)}
               </span>
@@ -60,6 +70,7 @@ export function TargetsView() {
 
       {isLoading && (
         <div className="flex flex-col gap-6">
+          <LoadingBanner />
           <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
             {Array.from({ length: 4 }).map((_, i) => (
               <Panel key={i} padding="tight">
@@ -191,6 +202,12 @@ export function TargetsView() {
             creditBacklog={creditBacklog}
           />
 
+          <MonthCallPlanPanel
+            rows={view.divisions}
+            totalWorkdays={data.calendar.totalWorkdays}
+            monthLabel={data.calendar.monthLabel}
+          />
+
           <p className="text-[12px] text-muted leading-relaxed">
             Daily target = (budget − MTD thru yesterday
             {creditBacklog ? ' − scheduled backlog' : ''}) ÷ remaining weekday
@@ -213,6 +230,34 @@ export function TargetsView() {
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * First-load banner: the daily-targets payload crawls ServiceTitan live
+ * (appointments + jobs + capacity) on the day's first hit, which can take
+ * 30-60s. A visible spinner + elapsed counter reassures the page isn't
+ * stuck; the message escalates once the wait is clearly a cold crawl.
+ */
+function LoadingBanner() {
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setSeconds((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  return (
+    <Panel padding="tight">
+      <div className="flex items-center gap-3 text-[13px]" role="status" aria-live="polite">
+        <LoaderCircle className="h-4 w-4 animate-spin text-accent shrink-0" aria-hidden="true" />
+        <span>
+          {seconds < 8
+            ? 'Loading today’s targets…'
+            : 'Pulling live data from ServiceTitan — the first load of the day crawls today’s board and can take up to a minute…'}
+        </span>
+        <span className="ml-auto font-mono tabular-nums text-muted">{seconds}s</span>
+      </div>
+    </Panel>
   );
 }
 
@@ -661,6 +706,7 @@ function fmtProjDate(iso: string): string {
  * Static remainder-of-month view: one row per remaining workday with the
  * estimated daily target if production continues at the month's actual
  * pace so far. Company-wide; a morning snapshot that doesn't drift intraday.
+ * Collapsible — closed by default to keep the page focused on today.
  */
 function ProjectionPanel({
   projection,
@@ -673,21 +719,76 @@ function ProjectionPanel({
   todayIso: string;
   creditBacklog: boolean;
 }) {
-  if (!projection) {
-    return (
-      <Panel eyebrow="Remainder of month" title="Daily targets at current pace" padding="cozy">
-        <p className="text-[13px] text-muted">
-          No workdays have elapsed this month yet, so there&apos;s no observed pace to
-          project from. This view fills in after the first working day closes.
-        </p>
-      </Panel>
-    );
-  }
+  const [open, setOpen] = useState(false);
 
+  const onTrack = projection ? projection.varianceCents >= 0 : true;
+  const summary = projection
+    ? `${fmtMoney(projection.paceCentsPerWorkday)}/workday · projected ${fmtMoney(projection.projectedMonthEndCents)}`
+    : 'No pace yet this month';
+
+  return (
+    <Panel padding="cozy">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-4 text-left"
+      >
+        <div className="flex flex-col gap-1">
+          <span className="text-eyebrow uppercase text-muted">Remainder of month</span>
+          <h3 className="text-panel">Daily targets at current pace</h3>
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
+          <span
+            className={cn(
+              'font-mono tabular-nums text-[12px] hidden sm:inline',
+              projection ? (onTrack ? 'text-up' : 'text-down') : 'text-muted',
+            )}
+          >
+            {summary}
+          </span>
+          <ChevronRight
+            aria-hidden="true"
+            className={cn('h-4 w-4 text-muted transition-transform shrink-0', open && 'rotate-90')}
+          />
+        </div>
+      </button>
+
+      {open && (
+        <div className="mt-4">
+          {!projection ? (
+            <p className="text-[13px] text-muted">
+              No workdays have elapsed this month yet, so there&apos;s no observed pace to
+              project from. This view fills in after the first working day closes.
+            </p>
+          ) : (
+            <ProjectionBody
+              projection={projection}
+              budgetCents={budgetCents}
+              todayIso={todayIso}
+              creditBacklog={creditBacklog}
+            />
+          )}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function ProjectionBody({
+  projection,
+  budgetCents,
+  todayIso,
+  creditBacklog,
+}: {
+  projection: MonthProjection;
+  budgetCents: number;
+  todayIso: string;
+  creditBacklog: boolean;
+}) {
   const onTrack = projection.varianceCents >= 0;
   return (
-    <Panel eyebrow="Remainder of month" title="Daily targets at current pace" padding="cozy">
-      <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-[13px]">
           <span>
             <span className="text-muted">Current pace </span>
@@ -767,6 +868,150 @@ function ProjectionPanel({
             : ' Backlog is not credited, matching the strict view above.'}{' '}
           Projected finish ignores backlog and today&apos;s partial production —
           it&apos;s purely pace × remaining workdays.
+        </p>
+    </div>
+  );
+}
+
+/**
+ * Marketing planning view — "what call volume does this month's budget
+ * require?" Pure month-level math, independent of MTD performance:
+ *   calls this month = monthly budget ÷ trailing revenue-per-job
+ *   calls per day    = calls this month ÷ total workdays in month
+ * Demand columns repeat the math at the demand rev/call rate — the number
+ * marketing can actually move, since maintenance is pre-scheduled.
+ */
+function MonthCallPlanPanel({
+  rows,
+  totalWorkdays,
+  monthLabel,
+}: {
+  rows: DailyTargetRow[];
+  totalWorkdays: number;
+  monthLabel: string;
+}) {
+  const planned = rows
+    .filter((r) => r.monthlyBudgetCents > 0)
+    .map((r) => {
+      const revPerDay = r.monthlyBudgetCents / totalWorkdays;
+      const blendedRate = r.trailing.blended.revenuePerJobCents;
+      const demandRate = r.trailing.demand?.revenuePerJobCents ?? null;
+      const jobsMonth = blendedRate ? r.monthlyBudgetCents / blendedRate : null;
+      const demandMonth = demandRate ? r.monthlyBudgetCents / demandRate : null;
+      return {
+        row: r,
+        revPerDay,
+        blendedRate,
+        demandRate,
+        jobsMonth,
+        jobsDay: jobsMonth != null ? jobsMonth / totalWorkdays : null,
+        demandMonth,
+        demandDay: demandMonth != null ? demandMonth / totalWorkdays : null,
+      };
+    });
+
+  if (planned.length === 0) return null;
+
+  const totalJobsMonth = planned.reduce((s, p) => s + (p.jobsMonth ?? 0), 0);
+  const totalBudget = planned.reduce((s, p) => s + p.row.monthlyBudgetCents, 0);
+
+  return (
+    <Panel eyebrow="Marketing plan" title={`Calls needed to hit ${monthLabel}'s budget`} padding="cozy">
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-[13px]">
+          <span>
+            <span className="text-muted">Company budget </span>
+            <span className="font-mono tabular-nums font-medium">{fmtMoney(totalBudget)}</span>
+          </span>
+          <span>
+            <span className="text-muted">Total calls required </span>
+            <span className="font-mono tabular-nums font-medium">
+              ~{Math.ceil(totalJobsMonth).toLocaleString()}
+            </span>
+            <span className="text-muted">
+              {' '}
+              (~{Math.ceil(totalJobsMonth / totalWorkdays)}/day over {totalWorkdays} workdays)
+            </span>
+          </span>
+        </div>
+
+        <div className="overflow-x-auto -mx-2 px-2">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="col-head border-b border-border">
+                <th className="py-2 pr-4 font-normal text-left">Division</th>
+                <th className="py-2 pr-4 font-normal text-right hidden sm:table-cell">Budget</th>
+                <th className="py-2 pr-4 font-normal text-right hidden md:table-cell">Rev needed/day</th>
+                <th className="py-2 pr-4 font-normal text-right hidden lg:table-cell">Rev/job</th>
+                <th className="py-2 pr-4 font-normal text-right">Calls this month</th>
+                <th className="py-2 pr-4 font-normal text-right">Calls/day</th>
+                <th className="py-2 pr-4 font-normal text-right hidden md:table-cell">Demand rev/call</th>
+                <th className="py-2 font-normal text-right hidden sm:table-cell">Demand calls/day</th>
+              </tr>
+            </thead>
+            <tbody>
+              {planned.map((p) => (
+                <tr key={p.row.code} className="border-b border-border/40">
+                  <td className="py-2.5 pr-4">
+                    <div className="flex items-center gap-2">
+                      <span
+                        aria-hidden="true"
+                        className="h-2.5 w-2.5 rounded-full shrink-0"
+                        style={{ background: `var(${p.row.colorToken})` }}
+                      />
+                      <span className="text-[13px] font-medium">{p.row.name}</span>
+                    </div>
+                  </td>
+                  <td className="py-2.5 pr-4 text-right font-mono tabular-nums text-[13px] text-muted hidden sm:table-cell">
+                    {fmtMoney(p.row.monthlyBudgetCents)}
+                  </td>
+                  <td className="py-2.5 pr-4 text-right font-mono tabular-nums text-[13px] text-muted hidden md:table-cell">
+                    {fmtMoney(Math.round(p.revPerDay))}
+                  </td>
+                  <td className="py-2.5 pr-4 text-right font-mono tabular-nums text-[13px] text-muted hidden lg:table-cell">
+                    {p.blendedRate != null ? fmtMoney(p.blendedRate) : '—'}
+                  </td>
+                  <td className="py-2.5 pr-4 text-right font-mono tabular-nums text-[14px] font-medium">
+                    {p.jobsMonth != null ? Math.ceil(p.jobsMonth).toLocaleString() : '—'}
+                  </td>
+                  <td className="py-2.5 pr-4 text-right font-mono tabular-nums text-[14px] font-medium">
+                    {p.jobsDay != null ? p.jobsDay.toFixed(1) : '—'}
+                  </td>
+                  <td className="py-2.5 pr-4 text-right font-mono tabular-nums text-[13px] text-muted hidden md:table-cell">
+                    {p.demandRate != null ? fmtMoney(p.demandRate) : '—'}
+                  </td>
+                  <td className="py-2.5 text-right font-mono tabular-nums text-[13px] hidden sm:table-cell">
+                    {p.demandDay != null ? p.demandDay.toFixed(1) : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <p className="text-[12px] text-muted leading-relaxed">
+          Month-level marketing plan, independent of month-to-date performance:
+          calls this month = monthly budget ÷ trailing revenue per completed job
+          (close rate baked in), spread over {totalWorkdays} workdays. For
+          install divisions, &quot;calls&quot; are estimate runs. Rates are
+          trailing 30-day (90 when the sample is thin) and drift as ticket
+          sizes move — treat this as a planning yardstick, not a commitment.
+        </p>
+        <p className="text-[12px] text-muted leading-relaxed">
+          <span className="font-medium text-text">Calls/day vs demand calls/day:</span>{' '}
+          same budget divided by two different ticket sizes. Calls/day uses the
+          blended rev/job — trailing revenue ÷ all completed jobs, with
+          maintenance runs, demand calls, and big-ticket installs mixed
+          together. Installs pull that average up, so fewer jobs cover the
+          budget: it&apos;s the realistic total job volume if your normal mix
+          holds. Demand calls/day uses the demand rev/call rate — demand
+          service calls only, a much smaller average ticket — so it answers
+          &quot;if marketing-driven demand alone had to produce the whole
+          budget, how many calls is that?&quot; The two are bookends: calls/day
+          is the floor assuming installs and maintenance keep producing at
+          trailing rates, demand calls/day is the worst-case marketing load
+          with zero help from either. Reality lands in between — every install
+          that doesn&apos;t close pushes you toward the demand number.
         </p>
       </div>
     </Panel>

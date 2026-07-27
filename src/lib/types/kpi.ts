@@ -213,6 +213,11 @@ export interface CallCenterResponse {
     avgCallTimeSec: number;
     abandonRateBps: number;
   }>;
+  /** Unbooked inbound lead calls grouped by ST call reason (what the
+   *  customer called about), sorted by unbooked count desc. */
+  unbookedReasons: Array<{ reason: string; leads: number; unbooked: number }>;
+  /** Jobs canceled in the window grouped by cancel reason, sorted desc. */
+  cancelReasons: Array<{ reason: string; count: number }>;
   meta: {
     period: string;
     asOf: string;
