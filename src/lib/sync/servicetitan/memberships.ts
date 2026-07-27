@@ -134,14 +134,34 @@ export async function syncMemberships(trigger: SyncTrigger): Promise<Memberships
       perType.set(m.membershipTypeId, agg);
     }
 
-    // 4. Build upsert rows.
+    // 4. Build upsert rows, keyed by display NAME (not type id).
+    //
+    // The upsert conflict target is (membership_name, report_date), so two
+    // distinct ServiceTitan membership type ids that resolve to the SAME
+    // display name would produce two rows with the same key in one batch —
+    // Postgres rejects that with "ON CONFLICT DO UPDATE command cannot affect
+    // row a second time". Some tenants really do run duplicate-named tiers
+    // (e.g. a renamed/re-created type). Merge them into one row by summing the
+    // counts so the dashboard shows a single tier per name.
+    const byName = new Map<
+      string,
+      { active: number; newThisMonth: number; canceledThisMonth: number }
+    >();
+    for (const [typeId, agg] of perType) {
+      if (agg.active === 0 && agg.newThisMonth === 0 && agg.canceledThisMonth === 0) continue;
+      const name = typeNameById.get(typeId) ?? `Type ${typeId}`;
+      const prior = byName.get(name) ?? { active: 0, newThisMonth: 0, canceledThisMonth: 0 };
+      prior.active += agg.active;
+      prior.newThisMonth += agg.newThisMonth;
+      prior.canceledThisMonth += agg.canceledThisMonth;
+      byName.set(name, prior);
+    }
+
     const rows: (typeof membershipDaily.$inferInsert)[] = [];
     let totalActive = 0;
     let totalNew = 0;
     let totalCanceled = 0;
-    for (const [typeId, agg] of perType) {
-      if (agg.active === 0 && agg.newThisMonth === 0 && agg.canceledThisMonth === 0) continue;
-      const name = typeNameById.get(typeId) ?? `Type ${typeId}`;
+    for (const [name, agg] of byName) {
       rows.push({
         membershipName: name,
         reportDate: today,
