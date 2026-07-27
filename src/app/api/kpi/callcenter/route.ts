@@ -7,7 +7,7 @@ import type { NextRequest } from 'next/server';
 import { and, eq, gte, lte, sql, asc } from 'drizzle-orm';
 
 import { db } from '@/db/client';
-import { callCenterDaily, callCenterHourly } from '@/db/schema';
+import { callCenterDaily, callCenterHourly, callReasonDaily, jobCancelReasonDaily } from '@/db/schema';
 import { resolvePeriod, type Window } from '@/lib/period';
 import type { CallCenterResponse, CompareValue } from '@/lib/types/kpi';
 
@@ -151,6 +151,44 @@ export async function GET(req: NextRequest) {
     .orderBy(asc(callCenterHourly.hour));
   const lyHourly = new Map(lyHourlyRows.map((r) => [r.hour, { total: r.totalCalls, booked: r.callsBooked }]));
 
+  // Unbooked lead calls grouped by call reason (current window). Sorted by
+  // unbooked count so the biggest leak surfaces first. Wrapped so a missing
+  // table (fresh deploy before db-setup ran) degrades to an empty list
+  // instead of tanking the whole call-center response.
+  const unbookedReasonRows = await database
+    .select({
+      reason: callReasonDaily.reasonName,
+      leads: sql<number>`COALESCE(SUM(${callReasonDaily.leadCalls}), 0)::int`,
+      unbooked: sql<number>`COALESCE(SUM(${callReasonDaily.leadCalls} - ${callReasonDaily.leadCallsBooked}), 0)::int`,
+    })
+    .from(callReasonDaily)
+    .where(
+      and(
+        gte(callReasonDaily.reportDate, period.cur.from),
+        lte(callReasonDaily.reportDate, period.cur.to),
+      ),
+    )
+    .groupBy(callReasonDaily.reasonName)
+    .orderBy(sql`SUM(${callReasonDaily.leadCalls} - ${callReasonDaily.leadCallsBooked}) DESC`)
+    .catch(() => []);
+
+  // Cancellations grouped by cancel reason (current window).
+  const cancelReasonRows = await database
+    .select({
+      reason: jobCancelReasonDaily.reasonName,
+      count: sql<number>`COALESCE(SUM(${jobCancelReasonDaily.canceledJobs}), 0)::int`,
+    })
+    .from(jobCancelReasonDaily)
+    .where(
+      and(
+        gte(jobCancelReasonDaily.reportDate, period.cur.from),
+        lte(jobCancelReasonDaily.reportDate, period.cur.to),
+      ),
+    )
+    .groupBy(jobCancelReasonDaily.reasonName)
+    .orderBy(sql`SUM(${jobCancelReasonDaily.canceledJobs}) DESC`)
+    .catch(() => []);
+
   const fmtHour = (h: number) => {
     if (h === 0) return '12a';
     if (h < 12) return `${h}a`;
@@ -183,6 +221,10 @@ export async function GET(req: NextRequest) {
       lyRate: lyRateByName.get(a.name),
     })),
     byDay,
+    unbookedReasons: unbookedReasonRows
+      .map((r) => ({ reason: r.reason, leads: Number(r.leads), unbooked: Number(r.unbooked) }))
+      .filter((r) => r.unbooked > 0),
+    cancelReasons: cancelReasonRows.map((r) => ({ reason: r.reason, count: Number(r.count) })),
     meta: {
       period: period.preset ? period.preset.toUpperCase() : 'Custom',
       asOf: new Date().toISOString(),

@@ -106,6 +106,15 @@ function shortText(r: DailyTargetRow, compact = false): string {
   return `+${r.demandCallsShort}`;
 }
 
+/** True when the month's budget is already fully covered for this division. */
+function budgetMet(r: DailyTargetRow): boolean {
+  return r.monthlyBudgetCents > 0 && r.dailyTargetCents === 0 && r.remainingBudgetCents <= 0;
+}
+
+function targetCellText(r: DailyTargetRow): string {
+  return budgetMet(r) ? 'met' : fmtMoney(r.dailyTargetCents);
+}
+
 function shortColor(r: DailyTargetRow): string {
   if (r.demandCallsShort == null) return '#667085';
   return r.demandCallsShort > 0 ? '#B42318' : '#067647';
@@ -216,7 +225,7 @@ function shell(result: DailyTargetsResult, preheader: string, body: string): str
 function methodologyHtml(result: DailyTargetsResult, perDivision: boolean): string {
   const days = result.calendar.remainingWorkdays;
   const whose = perDivision ? "each division's" : 'your';
-  return `Daily target = (budget &minus; MTD &minus; scheduled backlog) &divide; ${days} remaining workday${days === 1 ? '' : 's'}. Jobs needed uses ${whose} trailing 30-day revenue per completed job; calls short credits today's booked maintenance and demand calls. Install divisions count Sales estimate runs as calls. Pace: ahead &ge; 105% of expected-to-date, behind &le; 95%.`;
+  return `Daily target = (budget &minus; MTD &minus; scheduled backlog) &divide; ${days} remaining workday${days === 1 ? '' : 's'}. Jobs needed uses ${whose} trailing 30-day revenue per completed job; calls short credits today's booked maintenance and demand calls. Install divisions count Sales estimate runs as calls. &ldquo;Met&rdquo; = the month's budget is already fully covered. Pace: ahead &ge; 105% of expected-to-date, behind &le; 95%.`;
 }
 
 function footerHtml(result: DailyTargetsResult, allLine: string): string {
@@ -232,22 +241,22 @@ function footerHtml(result: DailyTargetsResult, allLine: string): string {
 
 function divisionRowsHtml(rows: DailyTargetRow[]): string {
   const head = `<tr>
-                  <td style="padding:0 0 10px 14px; border-bottom:1px solid #D9E2EC; font-family:${FONT}; font-size:11px; font-weight:900; letter-spacing:1px; text-transform:uppercase; color:#667085;">Division</td>
-                  <td align="right" width="50" style="padding:0 0 10px; border-bottom:1px solid #D9E2EC; font-family:${FONT}; font-size:11px; font-weight:900; letter-spacing:1px; text-transform:uppercase; color:#667085;">Jobs</td>
-                  <td align="right" width="74" style="padding:0 0 10px; border-bottom:1px solid #D9E2EC; font-family:${FONT}; font-size:11px; font-weight:900; letter-spacing:1px; text-transform:uppercase; color:#667085;">Target</td>
-                  <td align="right" width="60" style="padding:0 0 10px; border-bottom:1px solid #D9E2EC; font-family:${FONT}; font-size:11px; font-weight:900; letter-spacing:1px; text-transform:uppercase; color:#667085;">Short</td>
-                  <td align="right" width="104" style="padding:0 14px 10px 0; border-bottom:1px solid #D9E2EC; font-family:${FONT}; font-size:11px; font-weight:900; letter-spacing:1px; text-transform:uppercase; color:#667085;">Pace</td>
+                  <td style="padding:0 12px 10px 14px; border-bottom:1px solid #D9E2EC; font-family:${FONT}; font-size:11px; font-weight:900; letter-spacing:1px; text-transform:uppercase; color:#667085;">Division</td>
+                  <td align="right" width="46" style="padding:0 16px 10px 0; border-bottom:1px solid #D9E2EC; font-family:${FONT}; font-size:11px; font-weight:900; letter-spacing:1px; text-transform:uppercase; color:#667085;">Jobs</td>
+                  <td align="right" width="66" style="padding:0 16px 10px 0; border-bottom:1px solid #D9E2EC; font-family:${FONT}; font-size:11px; font-weight:900; letter-spacing:1px; text-transform:uppercase; color:#667085;">Target</td>
+                  <td align="right" width="62" style="padding:0 16px 10px 0; border-bottom:1px solid #D9E2EC; font-family:${FONT}; font-size:11px; font-weight:900; letter-spacing:1px; text-transform:uppercase; color:#667085;">Short</td>
+                  <td align="right" width="100" style="padding:0 14px 10px 0; border-bottom:1px solid #D9E2EC; font-family:${FONT}; font-size:11px; font-weight:900; letter-spacing:1px; text-transform:uppercase; color:#667085;">Pace</td>
                 </tr>`;
   const body = rows
     .map(
       (r) => `<tr>
-                  <td style="padding:13px 0 13px 14px; border-bottom:1px solid #EDF1F6; border-left:4px solid #124696;">
-                    <span style="font-family:${FONT}; font-size:14px; font-weight:800; color:#0C1F3A; white-space:nowrap;">${esc(r.name)}</span>
+                  <td style="padding:14px 12px 14px 14px; border-bottom:1px solid #EDF1F6; border-left:4px solid #124696;">
+                    <span style="font-family:${FONT}; font-size:14px; font-weight:800; color:#0C1F3A;">${esc(r.name)}</span>
                   </td>
-                  <td align="right" style="padding:13px 0; border-bottom:1px solid #EDF1F6; font-family:${FONT}; font-size:18px; font-weight:900; color:#124696;">${r.jobsNeededToday ?? '—'}</td>
-                  <td align="right" style="padding:13px 0; border-bottom:1px solid #EDF1F6; font-family:${FONT}; font-size:13px; font-weight:700; color:#475467;">${fmtMoney(r.dailyTargetCents)}</td>
-                  <td align="right" style="padding:13px 0; border-bottom:1px solid #EDF1F6; font-family:${FONT}; font-size:14px; font-weight:900; color:${shortColor(r)};">${esc(shortText(r))}</td>
-                  <td align="right" style="padding:13px 14px 13px 0; border-bottom:1px solid #EDF1F6;">${pillHtml(r)}</td>
+                  <td align="right" style="padding:14px 16px 14px 0; border-bottom:1px solid #EDF1F6; font-family:${FONT}; font-size:18px; font-weight:900; color:#124696;">${r.jobsNeededToday ?? '—'}</td>
+                  <td align="right" style="padding:14px 16px 14px 0; border-bottom:1px solid #EDF1F6; font-family:${FONT}; font-size:13px; font-weight:${budgetMet(r) ? 900 : 700}; color:${budgetMet(r) ? '#067647' : '#475467'}; white-space:nowrap;">${budgetMet(r) ? 'Met' : fmtMoney(r.dailyTargetCents)}</td>
+                  <td align="right" style="padding:14px 16px 14px 0; border-bottom:1px solid #EDF1F6; font-family:${FONT}; font-size:13px; font-weight:900; color:${shortColor(r)}; white-space:nowrap;">${esc(shortText(r))}</td>
+                  <td align="right" style="padding:14px 14px 14px 0; border-bottom:1px solid #EDF1F6;">${pillHtml(r)}</td>
                 </tr>`,
     )
     .join('\n');
@@ -263,24 +272,27 @@ export function renderDigest(result: DailyTargetsResult): {
 } {
   const rows = result.divisions;
   const s = summarize(rows);
-  const subject = `Daily Targets · ${ctDate(result)} — ${s.jobsNeeded} jobs needed across ${rows.length} divisions`;
-  const preheader = `${s.jobsNeeded} jobs needed · ${fmtMoney(s.dailyTargetCents)} daily target · ${s.onPaceOrAhead} of ${s.withBudget} on pace`;
+  const subject =
+    s.short > 0
+      ? `Daily Targets · ${ctDate(result)} — ${s.short} more job${s.short === 1 ? '' : 's'} needed today`
+      : `Daily Targets · ${ctDate(result)} — today's board covers the target`;
+  const preheader = `${s.jobsNeeded} jobs needed · ${s.booked} jobs booked · ${fmtMoney(s.dailyTargetCents)} daily target`;
 
   const body = `<tr>
             <td bgcolor="#FFFFFF" style="padding:32px;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #D9E2EC; border-radius:14px;">
                 <tr>
-                  <td width="33%" align="center" style="padding:20px; border-right:1px solid #D9E2EC;">
+                  <td width="33%" align="center" style="padding:20px 12px; border-right:1px solid #D9E2EC;">
                     <div style="font-family:${FONT}; font-size:11px; font-weight:900; letter-spacing:1px; text-transform:uppercase; color:#667085; white-space:nowrap; padding-bottom:5px;">Jobs needed</div>
                     <div style="font-family:${FONT}; font-size:28px; font-weight:900; color:#124696;">${s.jobsNeeded}</div>
                   </td>
-                  <td width="33%" align="center" style="padding:20px; border-right:1px solid #D9E2EC;">
+                  <td width="33%" align="center" style="padding:20px 12px; border-right:1px solid #D9E2EC;">
+                    <div style="font-family:${FONT}; font-size:11px; font-weight:900; letter-spacing:1px; text-transform:uppercase; color:#667085; white-space:nowrap; padding-bottom:5px;">Jobs booked</div>
+                    <div style="font-family:${FONT}; font-size:28px; font-weight:900; color:#0C1F3A;">${s.booked}</div>
+                  </td>
+                  <td align="center" style="padding:20px 12px;">
                     <div style="font-family:${FONT}; font-size:11px; font-weight:900; letter-spacing:1px; text-transform:uppercase; color:#667085; white-space:nowrap; padding-bottom:5px;">Daily target</div>
                     <div style="font-family:${FONT}; font-size:28px; font-weight:900; color:#0C1F3A;">${fmtMoney(s.dailyTargetCents)}</div>
-                  </td>
-                  <td align="center" style="padding:20px;">
-                    <div style="font-family:${FONT}; font-size:11px; font-weight:900; letter-spacing:1px; text-transform:uppercase; color:#667085; white-space:nowrap; padding-bottom:5px;">On pace</div>
-                    <div style="font-family:${FONT}; font-size:28px; font-weight:900; color:#0C1F3A;">${s.onPaceOrAhead}<span style="color:#98A2B3; font-size:20px;">/${s.withBudget}</span></div>
                   </td>
                 </tr>
               </table>
@@ -297,7 +309,7 @@ export function renderDigest(result: DailyTargetsResult): {
   const textRows = rows
     .map(
       (r) =>
-        `${pad(r.name.slice(0, 21), 21)}${rpad(String(r.jobsNeededToday ?? '—'), 5)}  ${rpad(fmtMoney(r.dailyTargetCents), 7)}  ${rpad(shortText(r, true), 6)}   ${paceText(r)}`,
+        `${pad(r.name.slice(0, 21), 21)}${rpad(String(r.jobsNeededToday ?? '—'), 5)}  ${rpad(targetCellText(r), 7)}  ${rpad(shortText(r, true), 6)}   ${paceText(r)}`,
     )
     .join('\n');
   const text = `DAILY TARGETS · ${ctDate(result).toUpperCase()}
@@ -305,8 +317,8 @@ ${BRAND_FOOTER}
 
 ALL DIVISIONS
 Jobs needed ....... ${s.jobsNeeded}
+Jobs booked ....... ${s.booked}
 Daily target ...... ${fmtMoney(s.dailyTargetCents)}
-On pace ........... ${s.onPaceOrAhead} of ${s.withBudget}
 
 ${pad('DIVISION', 21)}${rpad('JOBS', 5)}  ${rpad('TARGET', 7)}  ${rpad('SHORT', 6)}   PACE
 ${textRows}
@@ -336,7 +348,10 @@ export function renderTrade(
   const s = summarize(rows);
   const all = summarize(result.divisions);
 
-  const subject = `Daily Targets · ${trade.label} — ${s.jobsNeeded} jobs needed today`;
+  const subject =
+    s.short > 0
+      ? `Daily Targets · ${trade.label} — ${s.short} more job${s.short === 1 ? '' : 's'} needed today`
+      : `Daily Targets · ${trade.label} — today's board covers the target`;
   const shortPhrase =
     s.short > 0
       ? `${s.short} more to find`
@@ -389,12 +404,12 @@ export function renderTrade(
               </table>
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#EEF4FB" style="border:1px solid #D3E2F2; border-radius:16px;">
                 <tr>
-                  <td width="120" align="center" valign="middle" style="padding:28px 0 28px 28px; font-family:${FONT}; font-size:64px; font-weight:900; line-height:1; color:#124696;">
-                    ${s.jobsNeeded}
+                  <td width="120" align="center" valign="middle" style="padding:28px 0 28px 28px; font-family:${FONT}; font-size:64px; font-weight:900; line-height:1; color:${s.short > 0 ? '#124696' : '#067647'};">
+                    ${s.short}
                   </td>
                   <td valign="middle" style="padding:28px 28px 28px 22px;">
-                    <div style="font-family:${FONT}; font-size:16px; font-weight:900; color:#0C1F3A; padding-bottom:4px;">jobs needed today</div>
-                    <div style="font-family:${FONT}; font-size:13px; line-height:1.5; color:#667085;">to hit your ${fmtMoney(s.dailyTargetCents)} daily target. ${s.booked} calls are booked &mdash; <strong style="color:${s.short > 0 ? '#B42318' : '#067647'};">${shortPhrase}</strong>.</div>
+                    <div style="font-family:${FONT}; font-size:16px; font-weight:900; color:#0C1F3A; padding-bottom:4px;">${s.short > 0 ? 'more jobs needed today' : 'jobs needed — board covers it'}</div>
+                    <div style="font-family:${FONT}; font-size:13px; line-height:1.5; color:#667085;">${s.booked} calls are booked against your ${fmtMoney(s.dailyTargetCents)} daily target &mdash; <strong style="color:${s.short > 0 ? '#B42318' : '#067647'};">${shortPhrase}</strong>.</div>
                   </td>
                 </tr>
               </table>
@@ -428,7 +443,7 @@ export function renderTrade(
         rows
           .map(
             (r) =>
-              `${r.name.slice(0, 21).padEnd(21)}${String(r.jobsNeededToday ?? '—').padStart(5)}  ${fmtMoney(r.dailyTargetCents).padStart(7)}  ${shortText(r, true).padStart(6)}   ${paceText(r)}`,
+              `${r.name.slice(0, 21).padEnd(21)}${String(r.jobsNeededToday ?? '—').padStart(5)}  ${targetCellText(r).padStart(7)}  ${shortText(r, true).padStart(6)}   ${paceText(r)}`,
           )
           .join('\n') +
         '\n'
@@ -438,9 +453,9 @@ ${BRAND_FOOTER}
 
 YOUR DIVISION: ${trade.label.toUpperCase()}
 
-${s.jobsNeeded} JOBS NEEDED TODAY
-to hit your ${fmtMoney(s.dailyTargetCents)} daily target.
-${s.booked} calls are booked — ${shortPhrasePlain}.
+${s.short} MORE JOBS NEEDED TODAY
+${s.booked} calls are booked against your ${fmtMoney(s.dailyTargetCents)} daily target
+— ${shortPhrasePlain}.
 
 Daily target ...... ${fmtMoney(s.dailyTargetCents)}
 Calls short ....... ${s.short > 0 ? `+${s.short}` : 'covered'}

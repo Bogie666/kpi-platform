@@ -161,6 +161,50 @@ async function runSchema(): Promise<{
     ADD COLUMN IF NOT EXISTS lead_calls_booked integer NOT NULL DEFAULT 0
   `;
 
+  // call_reason_daily — per-(date, reason) lead-call counts for the
+  // "Unbooked leads by reason" list on the Call Center page.
+  await sql`
+    CREATE TABLE IF NOT EXISTS call_reason_daily (
+      id serial PRIMARY KEY,
+      report_date date NOT NULL,
+      reason_name text NOT NULL,
+      lead_calls integer NOT NULL DEFAULT 0,
+      lead_calls_booked integer NOT NULL DEFAULT 0,
+      source_report_id text NOT NULL,
+      synced_at timestamp NOT NULL DEFAULT now()
+    )
+  `;
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS call_reason_daily_uniq
+      ON call_reason_daily (report_date, reason_name)
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS call_reason_daily_date_idx
+      ON call_reason_daily (report_date)
+  `;
+
+  // job_cancel_reason_daily — cancellations by reason for the Call Center
+  // page. Date = job modifiedOn (local), same approximation as the
+  // Cancellations KPI count.
+  await sql`
+    CREATE TABLE IF NOT EXISTS job_cancel_reason_daily (
+      id serial PRIMARY KEY,
+      report_date date NOT NULL,
+      reason_name text NOT NULL,
+      canceled_jobs integer NOT NULL DEFAULT 0,
+      source_report_id text NOT NULL,
+      synced_at timestamp NOT NULL DEFAULT now()
+    )
+  `;
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS job_cancel_reason_daily_uniq
+      ON job_cancel_reason_daily (report_date, reason_name)
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS job_cancel_reason_daily_date_idx
+      ON job_cancel_reason_daily (report_date)
+  `;
+
   // total_job_average_cents added to technician_period — used for
   // 'Avg ticket' column on non-CA tech pages (TotalJobAverage from ST).
   await sql`
@@ -221,7 +265,7 @@ async function runSchema(): Promise<{
   `;
 
   return {
-    tablesEnsured: ['business_units', 'technician_period'],
+    tablesEnsured: ['business_units', 'technician_period', 'call_reason_daily', 'job_cancel_reason_daily'],
     columnsEnsured: [
       'financial_daily.closed_opportunities',
       'financial_daily.business_unit_id',

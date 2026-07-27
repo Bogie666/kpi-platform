@@ -18,8 +18,13 @@
  */
 import { and, eq, gte, lte, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
-import { callCenterDaily, callCenterHourly } from '@/db/schema';
-import { collectResource } from './raw-client';
+import {
+  callCenterDaily,
+  callCenterHourly,
+  callReasonDaily,
+  jobCancelReasonDaily,
+} from '@/db/schema';
+import { collectResource, fetchResourcePage } from './raw-client';
 import { getBusinessTz } from '@/lib/time';
 import {
   startSyncRun,
@@ -43,6 +48,9 @@ export interface CallcenterSyncResult {
   dailyRowsUpserted: number;
   hourlyRowsUpserted: number;
   agentCount: number;
+  reasonRowsUpserted: number;
+  canceledJobsFetched: number;
+  cancelReasonRowsUpserted: number;
 }
 
 interface StCall {
@@ -102,6 +110,74 @@ function makeBucketers(tz: string) {
   };
 }
 
+interface StCanceledJob {
+  id: number;
+  modifiedOn?: string | null;
+}
+
+/** Row from the /jobs/cancel-reasons batch lookup. */
+interface StJobCancelReason {
+  jobId: number;
+  reasonId?: number;
+  name?: string | null;
+}
+
+/** Batch size for /jobs/cancel-reasons — ST caps `ids` at 50 per call. */
+const CANCEL_REASON_BATCH = 50;
+
+/**
+ * Pull jobs canceled (well: Canceled + modified) in the window, look up
+ * each one's cancel reason via the /jobs/cancel-reasons batch endpoint,
+ * and aggregate to (local modified-date, reason) counts. modifiedOn is
+ * the same cancellation-date approximation the Cancellations KPI uses.
+ * `localBucket` is passed in so the date bucketing matches the tenant's
+ * business timezone (kpi-platform builds it per-run from getBusinessTz()).
+ */
+async function aggregateCancelReasons(
+  window: SyncWindow,
+  localBucket: (receivedOn: string) => { date: string; hour: number },
+): Promise<{ canceledFetched: number; rows: Map<string, { reportDate: string; reasonName: string; count: number }> }> {
+  const jobs = await collectResource<StCanceledJob>({
+    path: '/jpm/v2/tenant/{tenant}/jobs',
+    query: {
+      jobStatus: 'Canceled',
+      modifiedOnOrAfter: `${window.from}T00:00:00Z`,
+      modifiedBefore: `${shiftDate(window.to, 1)}T00:00:00Z`,
+    },
+  });
+
+  const reasonByJob = new Map<number, string>();
+  const ids = jobs.map((j) => j.id);
+  for (let i = 0; i < ids.length; i += CANCEL_REASON_BATCH) {
+    const chunk = ids.slice(i, i + CANCEL_REASON_BATCH);
+    const page = await fetchResourcePage<StJobCancelReason>({
+      path: '/jpm/v2/tenant/{tenant}/jobs/cancel-reasons',
+      query: { ids: chunk.join(',') },
+      // A job canceled more than once returns one entry per cancellation,
+      // so give headroom above the 50-id chunk.
+      pageSize: 200,
+    });
+    for (const r of page.data ?? []) {
+      const name = r.name?.trim();
+      if (!name) continue;
+      // Later entries overwrite — for re-canceled jobs the last reason wins.
+      reasonByJob.set(r.jobId, name);
+    }
+  }
+
+  const rows = new Map<string, { reportDate: string; reasonName: string; count: number }>();
+  for (const j of jobs) {
+    if (!j.modifiedOn) continue;
+    const { date } = localBucket(j.modifiedOn);
+    const reasonName = reasonByJob.get(j.id) ?? '(no reason recorded)';
+    const key = `${date}|${reasonName}`;
+    const entry = rows.get(key) ?? { reportDate: date, reasonName, count: 0 };
+    entry.count += 1;
+    rows.set(key, entry);
+  }
+  return { canceledFetched: jobs.length, rows };
+}
+
 export async function syncCallcenter(
   window: SyncWindow,
   trigger: SyncTrigger,
@@ -122,6 +198,9 @@ export async function syncCallcenter(
       dailyRowsUpserted: 0,
       hourlyRowsUpserted: 0,
       agentCount: 0,
+      reasonRowsUpserted: 0,
+      canceledJobsFetched: 0,
+      cancelReasonRowsUpserted: 0,
     };
   }
   const runId = start.runId;
@@ -157,9 +236,16 @@ export async function syncCallcenter(
       total: number;
       booked: number;
     };
+    type ReasonAgg = {
+      reportDate: string;
+      reasonName: string;
+      leadCalls: number;
+      leadCallsBooked: number;
+    };
 
     const daily = new Map<string, DailyAgg>();
     const hourly = new Map<string, HourlyAgg>();
+    const reasons = new Map<string, ReasonAgg>();
     const agents = new Set<string>();
     let inboundCount = 0;
 
@@ -194,6 +280,19 @@ export async function syncCallcenter(
       if (isLead) {
         d.leadCalls += 1;
         if (isBooked) d.leadCallsBooked += 1;
+
+        // per-reason lead counts (feeds "Unbooked leads by reason")
+        const reasonName = lc.reason?.name?.trim() || '(no reason)';
+        const reasonKey = `${date}|${reasonName}`;
+        const r = reasons.get(reasonKey) ?? {
+          reportDate: date,
+          reasonName,
+          leadCalls: 0,
+          leadCallsBooked: 0,
+        };
+        r.leadCalls += 1;
+        if (isBooked) r.leadCallsBooked += 1;
+        reasons.set(reasonKey, r);
       }
       if (isAbandoned) d.abandoned += 1;
       else {
@@ -321,9 +420,87 @@ export async function syncCallcenter(
       }
     }
 
+    // Call-reason rows (lead calls per reason per day)
+    const reasonRows = Array.from(reasons.values()).map((r) => ({
+      reportDate: r.reportDate,
+      reasonName: r.reasonName,
+      leadCalls: r.leadCalls,
+      leadCallsBooked: r.leadCallsBooked,
+      sourceReportId: CALLCENTER_SOURCE,
+    }));
+
+    await database
+      .delete(callReasonDaily)
+      .where(
+        and(
+          gte(callReasonDaily.reportDate, window.from),
+          lte(callReasonDaily.reportDate, window.to),
+        ),
+      );
+
+    let reasonUpserted = 0;
+    if (reasonRows.length > 0) {
+      for (let i = 0; i < reasonRows.length; i += 500) {
+        const batch = reasonRows.slice(i, i + 500);
+        // Upsert for the same reason as hourly: local-bucketed dates can
+        // land just outside the deleted window.
+        await database
+          .insert(callReasonDaily)
+          .values(batch)
+          .onConflictDoUpdate({
+            target: [callReasonDaily.reportDate, callReasonDaily.reasonName],
+            set: {
+              leadCalls: sql.raw(`excluded.lead_calls`),
+              leadCallsBooked: sql.raw(`excluded.lead_calls_booked`),
+              sourceReportId: sql.raw(`excluded.source_report_id`),
+              syncedAt: new Date(),
+            },
+          });
+        reasonUpserted += batch.length;
+      }
+    }
+
+    // Cancellations by reason (separate ST pull — canceled jobs + batch
+    // reason lookup)
+    const { canceledFetched, rows: cancelAgg } = await aggregateCancelReasons(window, localBucket);
+    const cancelRows = Array.from(cancelAgg.values()).map((r) => ({
+      reportDate: r.reportDate,
+      reasonName: r.reasonName,
+      canceledJobs: r.count,
+      sourceReportId: CALLCENTER_SOURCE,
+    }));
+
+    await database
+      .delete(jobCancelReasonDaily)
+      .where(
+        and(
+          gte(jobCancelReasonDaily.reportDate, window.from),
+          lte(jobCancelReasonDaily.reportDate, window.to),
+        ),
+      );
+
+    let cancelUpserted = 0;
+    if (cancelRows.length > 0) {
+      for (let i = 0; i < cancelRows.length; i += 500) {
+        const batch = cancelRows.slice(i, i + 500);
+        await database
+          .insert(jobCancelReasonDaily)
+          .values(batch)
+          .onConflictDoUpdate({
+            target: [jobCancelReasonDaily.reportDate, jobCancelReasonDaily.reasonName],
+            set: {
+              canceledJobs: sql.raw(`excluded.canceled_jobs`),
+              sourceReportId: sql.raw(`excluded.source_report_id`),
+              syncedAt: new Date(),
+            },
+          });
+        cancelUpserted += batch.length;
+      }
+    }
+
     await finishSyncRunSuccess(runId, {
-      rowsFetched: calls.length,
-      rowsUpserted: dailyUpserted + hourlyUpserted,
+      rowsFetched: calls.length + canceledFetched,
+      rowsUpserted: dailyUpserted + hourlyUpserted + reasonUpserted + cancelUpserted,
     });
 
     return {
@@ -333,6 +510,9 @@ export async function syncCallcenter(
       dailyRowsUpserted: dailyUpserted,
       hourlyRowsUpserted: hourlyUpserted,
       agentCount: agents.size,
+      reasonRowsUpserted: reasonUpserted,
+      canceledJobsFetched: canceledFetched,
+      cancelReasonRowsUpserted: cancelUpserted,
     };
   } catch (err) {
     const msg = err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err);

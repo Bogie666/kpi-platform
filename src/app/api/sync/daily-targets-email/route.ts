@@ -1,11 +1,13 @@
 /**
  * Morning Daily Targets email — cron entry point.
  *
- * Vercel cron fires at 11:30 and 12:30 UTC on weekdays (vercel.json); the
+ * Vercel cron fires hourly at :45 from 11:45–14:45 UTC on weekdays
+ * (vercel.json) to cover DST and a range of tenant-configured local send
+ * hours; the
  * route itself decides whether this is a sending morning:
  *   - must be a working day (weekday minus company holidays),
- *   - business-local time must be past 6:25 AM CT (so the 11:30 UTC tick is
- *     ignored during CST winter, and the 12:30 tick is the sender),
+ *   - business-local time must be past the configured send-after minute
+ *     (default 7:40 AM local; earlier ticks are ignored),
  *   - at most one send per day (kpi_cache marker).
  *
  * Auth: CRON_SECRET as Bearer header or ?secret= (same contract as
@@ -26,11 +28,17 @@ import { kpiCache } from '@/db/schema';
 import { sendDailyTargetsEmails } from '@/lib/email/daily-targets-email';
 import { isWorkday } from '@/lib/targets/calendar';
 import { getBusinessTz, localTodayISO } from '@/lib/time';
+import { getConfigTyped } from '@/lib/config-service';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
-const SEND_AFTER_MINUTES = 6 * 60 + 25; // 6:25 AM CT
+// Default local send time. Tenants can override with the
+// `daily_targets_email_send_after_minutes` config key (minutes past midnight,
+// business-local). The Vercel cron fires hourly across the morning window so
+// whatever local hour a tenant sets still gets caught; this gate + the
+// once-per-day marker pick the right tick.
+const DEFAULT_SEND_AFTER_MINUTES = 7 * 60 + 40; // 7:40 AM local
 
 function authorized(req: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
@@ -70,7 +78,12 @@ export async function GET(req: NextRequest) {
     if (!isWorkday(today)) {
       return NextResponse.json({ skipped: 'not a working day', date: today });
     }
-    if (localMinutesNow(tz) < SEND_AFTER_MINUTES) {
+    const configuredMin = await getConfigTyped<number>('daily_targets_email_send_after_minutes');
+    const sendAfterMinutes =
+      typeof configuredMin === 'number' && Number.isFinite(configuredMin)
+        ? configuredMin
+        : DEFAULT_SEND_AFTER_MINUTES;
+    if (localMinutesNow(tz) < sendAfterMinutes) {
       return NextResponse.json({ skipped: 'before send window', date: today });
     }
     const marker = await database

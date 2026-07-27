@@ -123,6 +123,7 @@ export async function getConfigTyped<T = string | number | boolean | unknown>(
  *
  * Optional keys in company_config (config_type='json'):
  *   division_merges          — {"source_code": "surviving_code", ...}
+ *   legacy_department_codes  — {"legacy_code": "canonical_code", ...} (estimate analysis)
  *   division_name_overrides  — {"surviving_code": "Display Name", ...}
  *
  * Call at the top of any server code path that uses mergeDivisionCode /
@@ -131,14 +132,17 @@ export async function getConfigTyped<T = string | number | boolean | unknown>(
  * default for tenants without roll-ups).
  */
 export async function loadDivisionModel(): Promise<void> {
-  const [merges, nameOverrides] = await Promise.all([
+  const [merges, nameOverrides, legacyCodes] = await Promise.all([
     getConfigTyped<Record<string, string>>('division_merges'),
     getConfigTyped<Record<string, string>>('division_name_overrides'),
+    getConfigTyped<Record<string, string>>('legacy_department_codes'),
   ]);
   applyDivisionModel({
     merges: merges && typeof merges === 'object' ? merges : undefined,
     nameOverrides:
       nameOverrides && typeof nameOverrides === 'object' ? nameOverrides : undefined,
+    legacyCodes:
+      legacyCodes && typeof legacyCodes === 'object' ? legacyCodes : undefined,
   });
 }
 

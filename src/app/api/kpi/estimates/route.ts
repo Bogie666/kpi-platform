@@ -17,6 +17,8 @@ import { and, asc, gte, lte } from 'drizzle-orm';
 
 import { db } from '@/db/client';
 import { departments, estimateAnalysis } from '@/db/schema';
+import { normalizeDepartmentCode } from '@/lib/divisions';
+import { loadDivisionModel } from '@/lib/config-service';
 import { resolvePeriod, daysInWindow } from '@/lib/period';
 import type { AnalyzeResponse, SeasonalityPoint } from '@/lib/types/kpi';
 
@@ -86,7 +88,7 @@ function buildJobAggs(rows: RawRow[]): JobAgg[] {
     let ttc: number | null;
     if (won) {
       monthKey = won.createdOn.slice(0, 7);
-      dept = won.departmentCode;
+      dept = normalizeDepartmentCode(won.departmentCode);
       ttc = won.timeToCloseDays;
     } else {
       // Use the earliest sibling for the opportunity's identity.
@@ -94,7 +96,7 @@ function buildJobAggs(rows: RawRow[]): JobAgg[] {
         a.createdOn < b.createdOn ? -1 : 1,
       );
       monthKey = ordered[0].createdOn.slice(0, 7);
-      dept = ordered[0].departmentCode;
+      dept = normalizeDepartmentCode(ordered[0].departmentCode);
       ttc = ordered[0].timeToCloseDays;
     }
 
@@ -124,6 +126,9 @@ function buildJobAggs(rows: RawRow[]): JobAgg[] {
 }
 
 export async function GET(req: NextRequest) {
+  // Hydrate division merge + legacy-department-code maps from tenant config
+  // so normalizeDepartmentCode() below reflects this tenant's remaps.
+  await loadDivisionModel();
   const params = req.nextUrl.searchParams;
   const period = await resolvePeriod({
     preset: params.get('preset') ?? 'ttm',
