@@ -2,10 +2,38 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { Camera, Check, Clipboard, Sparkles } from 'lucide-react';
+import { useCompanyConfig } from '@/lib/hooks/use-company-config';
 
-const DEFAULT_PHOTO =
-  'https://www.lexairconditioning.com/wp-content/uploads/2026/02/IMG_20260218_214609.png';
-const DEFAULT_WEBSITE = 'https://www.lexairconditioning.com';
+/**
+ * Branded email-signature generator. All brand-specific values (company
+ * line, tagline, website, logo, accent/heading colors, default photo) are
+ * config-driven off company_config via /api/config, with LEX values as the
+ * built-in fallback so existing tenants render unchanged. To rebrand a
+ * tenant, set the `signature_*` keys in company_config (see BRAND_FALLBACK).
+ */
+
+interface Brand {
+  companyLine: string;   // bold company line under the name
+  tagline: string;       // italic footer line
+  website: string;       // default website URL
+  logoUrl: string;       // logo shown in the text-only variant
+  logoAlt: string;
+  defaultPhoto: string;  // fallback headshot for the photo variant
+  headingColor: string;  // name + company line (navy)
+  accentColor: string;   // title, P/E/W glyphs, divider (gold)
+}
+
+const BRAND_FALLBACK: Brand = {
+  companyLine: 'LEX - Air Conditioning, Heating, Plumbing &amp; Electrical',
+  tagline: 'The Gold Standard of White Glove Service.',
+  website: 'https://www.lexairconditioning.com',
+  logoUrl: 'https://www.lexairconditioning.com/wp-content/uploads/2024/01/lex-logo@2x.png',
+  logoAlt: 'LEX Air Conditioning, Heating, Plumbing &amp; Electrical',
+  defaultPhoto:
+    'https://www.lexairconditioning.com/wp-content/uploads/2026/02/IMG_20260218_214609.png',
+  headingColor: '#003366',
+  accentColor: '#C8A851',
+};
 
 interface SignatureOpts {
   withPhoto: boolean;
@@ -17,9 +45,6 @@ interface SignatureOpts {
   website: string;
 }
 
-const COMPANY_LINE = 'LEX - Air Conditioning, Heating, Plumbing &amp; Electrical';
-const TAGLINE = 'The Gold Standard of White Glove Service.';
-
 function escapeHTML(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -28,55 +53,49 @@ function escapeHTML(s: string): string {
     .replace(/"/g, '&quot;');
 }
 
-/** Body table — name, title, optional company line, P/E/W rows, tagline.
- *  When the photo variant is used, the body includes the company name
- *  line. When the no-photo variant is used, the LEX logo on the left
- *  conveys the company so the line is omitted to avoid redundancy. */
 function buildBodyHTML(
   opts: Pick<SignatureOpts, 'name' | 'title' | 'phone' | 'email' | 'website'>,
   options: { includeCompanyLine: boolean },
+  brand: Brand,
 ): string {
   const displayName = escapeHTML(opts.name || 'Your Name');
   const title = opts.title ? escapeHTML(opts.title) : '';
   const websiteDisplay = opts.website ? opts.website.replace(/^https?:\/\/(www\.)?/, '') : '';
 
   const titleRow = title
-    ? `<tr><td style="font-family: Arial, sans-serif; font-size: 13px; color: #C8A851; font-weight: 600; padding-bottom: 8px; letter-spacing: 0.3px;">${title}</td></tr>`
+    ? `<tr><td style="font-family: Arial, sans-serif; font-size: 13px; color: ${brand.accentColor}; font-weight: 600; padding-bottom: 8px; letter-spacing: 0.3px;">${title}</td></tr>`
     : '';
   const companyRow = options.includeCompanyLine
-    ? `<tr><td style="font-family: Arial, sans-serif; font-size: 13px; color: #003366; font-weight: 700; padding-bottom: 10px;">${COMPANY_LINE}</td></tr>`
+    ? `<tr><td style="font-family: Arial, sans-serif; font-size: 13px; color: ${brand.headingColor}; font-weight: 700; padding-bottom: 10px;">${brand.companyLine}</td></tr>`
     : '';
   const phoneRow = opts.phone
-    ? `<tr><td style="font-family: Arial, sans-serif; font-size: 12px; color: #555555; padding-bottom: 4px;"><span style="color: #C8A851; font-weight: 700;">P</span>&nbsp;&nbsp;<a href="tel:${opts.phone.replace(/\D/g, '')}" style="color: #555555; text-decoration: none;">${escapeHTML(opts.phone)}</a></td></tr>`
+    ? `<tr><td style="font-family: Arial, sans-serif; font-size: 12px; color: #555555; padding-bottom: 4px;"><span style="color: ${brand.accentColor}; font-weight: 700;">P</span>&nbsp;&nbsp;<a href="tel:${opts.phone.replace(/\D/g, '')}" style="color: #555555; text-decoration: none;">${escapeHTML(opts.phone)}</a></td></tr>`
     : '';
   const emailRow = opts.email
-    ? `<tr><td style="font-family: Arial, sans-serif; font-size: 12px; color: #555555; padding-bottom: 4px;"><span style="color: #C8A851; font-weight: 700;">E</span>&nbsp;&nbsp;<a href="mailto:${escapeHTML(opts.email)}" style="color: #555555; text-decoration: none;">${escapeHTML(opts.email)}</a></td></tr>`
+    ? `<tr><td style="font-family: Arial, sans-serif; font-size: 12px; color: #555555; padding-bottom: 4px;"><span style="color: ${brand.accentColor}; font-weight: 700;">E</span>&nbsp;&nbsp;<a href="mailto:${escapeHTML(opts.email)}" style="color: #555555; text-decoration: none;">${escapeHTML(opts.email)}</a></td></tr>`
     : '';
   const websiteRow = opts.website
-    ? `<tr><td style="font-family: Arial, sans-serif; font-size: 12px; color: #555555; padding-bottom: 10px;"><span style="color: #C8A851; font-weight: 700;">W</span>&nbsp;&nbsp;<a href="${escapeHTML(opts.website)}" style="color: #555555; text-decoration: none;">${escapeHTML(websiteDisplay)}</a></td></tr>`
+    ? `<tr><td style="font-family: Arial, sans-serif; font-size: 12px; color: #555555; padding-bottom: 10px;"><span style="color: ${brand.accentColor}; font-weight: 700;">W</span>&nbsp;&nbsp;<a href="${escapeHTML(opts.website)}" style="color: #555555; text-decoration: none;">${escapeHTML(websiteDisplay)}</a></td></tr>`
     : '';
 
   return `<table cellpadding="0" cellspacing="0" border="0">
-        <tr><td style="font-family: 'Montserrat', Arial, sans-serif; font-size: 18px; font-weight: 700; color: #003366; padding-bottom: 2px;">${displayName}</td></tr>
+        <tr><td style="font-family: 'Montserrat', Arial, sans-serif; font-size: 18px; font-weight: 700; color: ${brand.headingColor}; padding-bottom: 2px;">${displayName}</td></tr>
         ${titleRow}
         ${companyRow}
         ${phoneRow}
         ${emailRow}
         ${websiteRow}
-        <tr><td style="font-family: Arial, sans-serif; font-size: 11px; color: #888888; font-style: italic; border-top: 1px solid #e5e7eb; padding-top: 8px;">${TAGLINE}</td></tr>
+        <tr><td style="font-family: Arial, sans-serif; font-size: 11px; color: #888888; font-style: italic; border-top: 1px solid #e5e7eb; padding-top: 8px;">${brand.tagline}</td></tr>
       </table>`;
 }
 
-function buildSignatureHTML(opts: SignatureOpts): string {
+function buildSignatureHTML(opts: SignatureOpts, brand: Brand): string {
   if (!opts.withPhoto) {
-    // No personal photo — show the LEX logo in the left cell instead.
-    // The logo conveys the company so we omit the redundant company-name
-    // line from the body.
-    const body = buildBodyHTML(opts, { includeCompanyLine: false });
+    const body = buildBodyHTML(opts, { includeCompanyLine: false }, brand);
     return `<table cellpadding="0" cellspacing="0" border="0" style="font-family: Arial, Helvetica, sans-serif; color: #333333; border-collapse: collapse;">
   <tr>
-    <td style="padding: 0 20px 0 0; vertical-align: middle; border-right: 3px solid #C8A851;">
-      <img src="https://www.lexairconditioning.com/wp-content/uploads/2024/01/lex-logo@2x.png" alt="LEX Air Conditioning, Heating, Plumbing &amp; Electrical" width="160" height="84" style="display: block; border: 0;">
+    <td style="padding: 0 20px 0 0; vertical-align: middle; border-right: 3px solid ${brand.accentColor};">
+      <img src="${brand.logoUrl}" alt="${brand.logoAlt}" width="160" style="display: block; border: 0;">
     </td>
     <td style="padding: 0 0 0 20px; vertical-align: top; line-height: 1.4;">
       ${body}
@@ -85,14 +104,12 @@ function buildSignatureHTML(opts: SignatureOpts): string {
 </table>`;
   }
 
-  // Photo variant — drop the company-name line and use a larger
-  // headshot so the left and right columns balance visually.
-  const body = buildBodyHTML(opts, { includeCompanyLine: false });
+  const body = buildBodyHTML(opts, { includeCompanyLine: true }, brand);
   const photoSrc = escapeHTML(opts.photoSrc);
   const altName = escapeHTML(opts.name || 'Photo');
   return `<table cellpadding="0" cellspacing="0" border="0" style="font-family: Arial, Helvetica, sans-serif; color: #333333; border-collapse: collapse;">
   <tr>
-    <td style="padding: 0 20px 0 0; vertical-align: middle; border-right: 3px solid #C8A851;">
+    <td style="padding: 0 20px 0 0; vertical-align: middle; border-right: 3px solid ${brand.accentColor};">
       <img src="${photoSrc}" alt="${altName}" width="140" height="140" style="display: block; border-radius: 50%; border: 0;">
     </td>
     <td style="padding: 0 0 0 20px; vertical-align: middle; line-height: 1.4;">
@@ -103,11 +120,26 @@ function buildSignatureHTML(opts: SignatureOpts): string {
 }
 
 export function EmailSignatureGenerator() {
+  const { data: cfg } = useCompanyConfig();
+  const c = (cfg?.config ?? {}) as Record<string, unknown>;
+  const str = (k: string) => (typeof c[k] === 'string' && (c[k] as string).trim() ? (c[k] as string) : undefined);
+
+  const brand: Brand = {
+    companyLine: str('signature_company_line') ?? BRAND_FALLBACK.companyLine,
+    tagline: str('signature_tagline') ?? BRAND_FALLBACK.tagline,
+    website: str('signature_website') ?? BRAND_FALLBACK.website,
+    logoUrl: str('signature_logo_url') ?? str('company_logo_url') ?? BRAND_FALLBACK.logoUrl,
+    logoAlt: str('signature_logo_alt') ?? str('company_name') ?? BRAND_FALLBACK.logoAlt,
+    defaultPhoto: str('signature_default_photo') ?? BRAND_FALLBACK.defaultPhoto,
+    headingColor: str('signature_heading_color') ?? BRAND_FALLBACK.headingColor,
+    accentColor: str('signature_accent_color') ?? BRAND_FALLBACK.accentColor,
+  };
+
   const [fullName, setFullName] = useState('');
   const [jobTitle, setJobTitle] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
-  const [website, setWebsite] = useState(DEFAULT_WEBSITE);
+  const [website, setWebsite] = useState('');
   const [photoUrl, setPhotoUrl] = useState('');
   const [photoDataUrl, setPhotoDataUrl] = useState('');
   const [photoFileName, setPhotoFileName] = useState('');
@@ -115,17 +147,16 @@ export function EmailSignatureGenerator() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [generated, setGenerated] = useState(false);
   const [copied, setCopied] = useState(false);
-  // Text-only (LEX logo on the left) is the default — most employees
-  // don't have a hosted headshot handy, and it produces a clean
-  // signature with zero setup. Toggle to "With photo" to upload one.
   const [withPhoto, setWithPhoto] = useState(false);
   const previewRef = useRef<HTMLDivElement | null>(null);
+
+  const effectiveWebsite = website || brand.website;
 
   const getPhotoSrc = useCallback(() => {
     if (photoUrl) return photoUrl;
     if (photoDataUrl) return photoDataUrl;
-    return DEFAULT_PHOTO;
-  }, [photoUrl, photoDataUrl]);
+    return brand.defaultPhoto;
+  }, [photoUrl, photoDataUrl, brand.defaultPhoto]);
 
   const buildOpts = useCallback(
     (): SignatureOpts => ({
@@ -135,12 +166,12 @@ export function EmailSignatureGenerator() {
       title: jobTitle,
       phone,
       email,
-      website,
+      website: effectiveWebsite,
     }),
-    [withPhoto, getPhotoSrc, fullName, jobTitle, phone, email, website],
+    [withPhoto, getPhotoSrc, fullName, jobTitle, phone, email, effectiveWebsite],
   );
 
-  const signatureHTML = generated ? buildSignatureHTML(buildOpts()) : '';
+  const signatureHTML = generated ? buildSignatureHTML(buildOpts(), brand) : '';
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -165,13 +196,8 @@ export function EmailSignatureGenerator() {
 
     setUploading(true);
     try {
-      // Dedicated signature-photo route — uploads to the same Vercel
-      // Blob bucket as technician headshots, but doesn't write any
-      // employees-table row. Auth-gated via the shared admin secret.
       const form = new FormData();
       form.append('file', file);
-      // Public endpoint (any employee, no admin login required) — gated
-      // only by same-origin referer + size/type limits.
       const res = await fetch('/api/tools/signature-photo', {
         method: 'POST',
         body: form,
@@ -195,7 +221,7 @@ export function EmailSignatureGenerator() {
   };
 
   const handleCopy = async () => {
-    const html = buildSignatureHTML(buildOpts());
+    const html = buildSignatureHTML(buildOpts(), brand);
     try {
       if (navigator.clipboard && typeof window.ClipboardItem !== 'undefined') {
         const item = new ClipboardItem({
@@ -230,7 +256,6 @@ export function EmailSignatureGenerator() {
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Form */}
       <div className="flex flex-col gap-4">
-        {/* With-photo / no-photo toggle */}
         <div className="flex items-center gap-2">
           <span className="text-eyebrow uppercase text-muted">Style</span>
           <div className="inline-flex bg-surface-2 rounded-btn overflow-hidden border border-border">
@@ -350,7 +375,7 @@ export function EmailSignatureGenerator() {
           <input
             type="email"
             className={inputClass}
-            placeholder="jdoe@lexairconditioning.com"
+            placeholder="name@company.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
@@ -360,6 +385,7 @@ export function EmailSignatureGenerator() {
           <input
             type="url"
             className={inputClass}
+            placeholder={brand.website}
             value={website}
             onChange={(e) => setWebsite(e.target.value)}
           />
