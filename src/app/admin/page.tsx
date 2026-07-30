@@ -12,6 +12,13 @@ interface AdminSection {
 
 const SECTIONS: AdminSection[] = [
   {
+    href: '/setup',
+    title: 'Setup wizard',
+    description:
+      'Re-run the full configuration wizard — ServiceTitan credentials, divisions & business-unit mapping, branding, Google reviews, and weather. Safe to revisit any time; nothing is wiped.',
+    status: 'ready',
+  },
+  {
     href: '/admin/targets',
     title: 'Targets',
     description:

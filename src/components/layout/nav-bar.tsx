@@ -3,6 +3,7 @@
 import { RefreshCw } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { TabBar } from './tab-bar';
+import { UserMenu } from './user-menu';
 import { LiveDot } from '@/components/primitives/live-dot';
 import { cn } from '@/lib/cn';
 import type { Tab, CompareMode } from '@/lib/state/url-params';
@@ -107,6 +108,8 @@ export function NavBar({ activeTab, onTabChange, compareMode, onCompareChange }:
           <div className="hidden md:block">
             <LiveDot size="sm" />
           </div>
+
+          <UserMenu />
         </div>
       </div>
 
