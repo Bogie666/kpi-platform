@@ -14,6 +14,8 @@ interface ServerState {
     google_client_secret: boolean;
     google_refresh_token: boolean;
   };
+  connectedEmail: string | null;
+  hasConnection: boolean;
   locations: GoogleLocationDraft[];
 }
 
@@ -123,6 +125,8 @@ export function GoogleReviewsClient() {
           saving={saving}
           initialCreds={initialCreds}
           initialLocations={state.locations}
+          connectedEmail={state.connectedEmail}
+          hasConnection={state.hasConnection}
           onSave={handleSave}
         />
       )}

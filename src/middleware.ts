@@ -42,7 +42,8 @@ function isAdminPath(pathname: string): boolean {
     pathname === '/admin' || pathname.startsWith('/admin/') ||
     pathname === '/setup' || pathname.startsWith('/setup/') ||
     pathname === '/api/admin' || pathname.startsWith('/api/admin/') ||
-    pathname === '/api/setup' || pathname.startsWith('/api/setup/')
+    pathname === '/api/setup' || pathname.startsWith('/api/setup/') ||
+    pathname === '/api/google' || pathname.startsWith('/api/google/')
   );
 }
 

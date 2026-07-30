@@ -22,10 +22,11 @@ export async function GET(req: NextRequest) {
   const fail = await requireAdminAuth(req);
   if (fail) return fail;
 
-  const [clientId, clientSecret, refreshToken, locations] = await Promise.all([
+  const [clientId, clientSecret, refreshToken, connectedEmail, locations] = await Promise.all([
     getConfig('google_client_id'),
     getConfig('google_client_secret'),
     getConfig('google_refresh_token'),
+    getConfig('google_connected_email'),
     getGoogleLocations(true),
   ]);
 
@@ -35,6 +36,8 @@ export async function GET(req: NextRequest) {
       google_client_secret: Boolean(clientSecret),
       google_refresh_token: Boolean(refreshToken),
     },
+    connectedEmail: connectedEmail ?? null,
+    hasConnection: Boolean(refreshToken),
     locations: locations.map((l) => ({
       name: l.name,
       accountId: l.accountId,

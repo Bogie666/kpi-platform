@@ -186,6 +186,8 @@ export function SetupWizard() {
             google_refresh_token: (cfg.google_refresh_token as string) ?? '',
           }}
           initialLocations={[]}
+          connectedEmail={(cfg.google_connected_email as string) ?? null}
+          hasConnection={Boolean(cfg.google_connected_email)}
           onSave={async (payload: {
             creds: StepGoogleValues;
             locations: GoogleLocationDraft[];
