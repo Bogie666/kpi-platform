@@ -264,8 +264,21 @@ async function runSchema(): Promise<{
       ON technician_period (period_start, period_end)
   `;
 
+  // Dashboard logins (added when auth shipped). Idempotent.
+  await sql`
+    CREATE TABLE IF NOT EXISTS users (
+      id serial PRIMARY KEY NOT NULL,
+      email text NOT NULL UNIQUE,
+      password_hash text NOT NULL,
+      name text,
+      active boolean DEFAULT true NOT NULL,
+      created_at timestamp DEFAULT now() NOT NULL,
+      last_login_at timestamp
+    )
+  `;
+
   return {
-    tablesEnsured: ['business_units', 'technician_period', 'call_reason_daily', 'job_cancel_reason_daily'],
+    tablesEnsured: ['business_units', 'technician_period', 'call_reason_daily', 'job_cancel_reason_daily', 'users'],
     columnsEnsured: [
       'financial_daily.closed_opportunities',
       'financial_daily.business_unit_id',

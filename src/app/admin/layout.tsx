@@ -51,6 +51,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             >
               ← Dashboard
             </Link>
+            <a
+              href="/api/auth/logout"
+              className="text-[12px] text-muted hover:text-text transition-colors"
+            >
+              Sign out
+            </a>
             <div className="hidden md:block">
               <LiveDot size="sm" />
             </div>
