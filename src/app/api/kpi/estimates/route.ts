@@ -50,6 +50,9 @@ interface JobAgg {
   /** YYYY-MM bucket the opportunity is attributed to (won row's month
    *  if won, else the earliest sibling's createdOn). */
   monthKey: string;
+  /** Average subtotal across ALL sibling options — the typical offer size
+   *  for this opportunity, used to slice close rate by estimate value. */
+  avgOptionCents: number;
 }
 
 /** Decide tier from the won option's price vs all sibling option prices. */
@@ -112,6 +115,8 @@ function buildJobAggs(rows: RawRow[]): JobAgg[] {
       tier = rankTier(Number(won.subtotalCents), allOptions);
     }
 
+    const optionTotal = siblings.reduce((s, r) => s + Number(r.subtotalCents), 0);
+
     out.push({
       status,
       wonRevenueCents: won ? Number(won.subtotalCents) : 0,
@@ -120,6 +125,7 @@ function buildJobAggs(rows: RawRow[]): JobAgg[] {
       timeToCloseDays: ttc,
       departmentCode: dept,
       monthKey,
+      avgOptionCents: Math.round(optionTotal / siblings.length),
     });
   }
   return out;
@@ -169,17 +175,56 @@ export async function GET(req: NextRequest) {
   const closeRateBps = totalOpps > 0 ? Math.round((wonJobs.length / totalOpps) * 10000) : 0;
   const avgTicketCents = wonJobs.length > 0 ? Math.round(wonRevenue / wonJobs.length) : 0;
 
-  // Tier rollup — only won jobs with ≥2 options contribute.
-  const tierCounts: Record<'low' | 'mid' | 'high', number> = { low: 0, mid: 0, high: 0 };
+  // Median time-to-close across won jobs with a known close time.
+  const ttcSorted = wonJobs
+    .map((j) => j.timeToCloseDays)
+    .filter((d): d is number => d != null)
+    .sort((a, b) => a - b);
+  const medianTtcDays =
+    ttcSorted.length > 0 ? ttcSorted[Math.floor((ttcSorted.length - 1) / 2)] : null;
+
+  // Tier rollup — only won jobs with ≥2 options contribute. Track the won
+  // revenue per tier too, so the panel can show what picking up-tier is
+  // actually worth in ticket size.
+  const tierAgg: Record<'low' | 'mid' | 'high', { count: number; revenue: number }> = {
+    low: { count: 0, revenue: 0 },
+    mid: { count: 0, revenue: 0 },
+    high: { count: 0, revenue: 0 },
+  };
   for (const j of wonJobs) {
-    if (j.tier) tierCounts[j.tier]++;
+    if (j.tier) {
+      tierAgg[j.tier].count++;
+      tierAgg[j.tier].revenue += j.wonRevenueCents;
+    }
   }
-  const tierTotal = tierCounts.low + tierCounts.mid + tierCounts.high;
+  const tierTotal = tierAgg.low.count + tierAgg.mid.count + tierAgg.high.count;
   const tierSelection = (['low', 'mid', 'high'] as const).map((tier) => ({
     tier,
-    count: tierCounts[tier],
-    pct: tierTotal === 0 ? 0 : Math.round((tierCounts[tier] / tierTotal) * 100),
+    count: tierAgg[tier].count,
+    pct: tierTotal === 0 ? 0 : Math.round((tierAgg[tier].count / tierTotal) * 100),
+    avgTicketCents:
+      tierAgg[tier].count > 0 ? Math.round(tierAgg[tier].revenue / tierAgg[tier].count) : 0,
   }));
+
+  // Close rate by offer size — banded on the avg option value per job so
+  // won and lost opportunities are banded the same way (won-price banding
+  // would bias the comparison).
+  const VALUE_BANDS = [
+    { band: 'Under $1k', min: 0, max: 100_000 },
+    { band: '$1k–5k', min: 100_000, max: 500_000 },
+    { band: '$5k–15k', min: 500_000, max: 1_500_000 },
+    { band: '$15k+', min: 1_500_000, max: Infinity },
+  ];
+  const valueBands = VALUE_BANDS.map(({ band, min, max }) => {
+    const inBand = jobs.filter((j) => j.avgOptionCents >= min && j.avgOptionCents < max);
+    const won = inBand.filter((j) => j.status === 'won').length;
+    return {
+      band,
+      opportunities: inBand.length,
+      won,
+      closeRateBps: inBand.length > 0 ? Math.round((won / inBand.length) * 10000) : 0,
+    };
+  }).filter((b) => b.opportunities > 0);
 
   // Time-to-close rollup — only won jobs (sold-time-to-close is the metric).
   const ttcCounts: Record<'same_day' | 'one_to_7' | 'over_7', number> = {
@@ -222,6 +267,9 @@ export async function GET(req: NextRequest) {
     const rev = m?.revenue ?? 0;
     return {
       month: MONTH_NAMES[mm - 1] ?? key,
+      opportunities: opps,
+      won,
+      wonRevenueCents: rev,
       closeRateBps: opps > 0 ? Math.round((won / opps) * 10000) : 0,
       avgTicketCents: won > 0 ? Math.round(rev / won) : 0,
     };
@@ -254,6 +302,7 @@ export async function GET(req: NextRequest) {
       opportunities: opps,
       closeRateBps: opps > 0 ? Math.round((won / opps) * 10000) : 0,
       avgTicketCents: won > 0 ? Math.round(rev / won) : 0,
+      wonRevenueCents: rev,
       unsoldCents,
     };
   });
@@ -264,9 +313,15 @@ export async function GET(req: NextRequest) {
       closeRateBps,
       unsoldCents: realisticUnsold,
       avgTicketCents,
+      wonCount: wonJobs.length,
+      unsoldCount: unsoldJobs.length,
+      dismissedCount: totalOpps - wonJobs.length - unsoldJobs.length,
+      wonRevenueCents: wonRevenue,
+      medianTtcDays,
     },
     tierSelection,
     timeToClose,
+    valueBands,
     seasonality,
     byDept,
     meta: {

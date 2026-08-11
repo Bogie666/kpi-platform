@@ -276,8 +276,22 @@ export interface MembershipTier {
 
 export interface SeasonalityPoint {
   month: string; // 'Apr', 'May', ...
+  /** Distinct opportunities (jobs) created that month. */
+  opportunities: number;
+  /** Of those, how many won. */
+  won: number;
+  /** Won revenue attributed to that month (cents). */
+  wonRevenueCents: number;
   closeRateBps: number;
   avgTicketCents: number;
+}
+
+/** Close rate sliced by the size of the offer (avg option value per job). */
+export interface AnalyzeValueBand {
+  band: string; // 'Under $1k', '$1k–5k', ...
+  opportunities: number;
+  won: number;
+  closeRateBps: number;
 }
 
 export interface AnalyzeDeptRow {
@@ -286,6 +300,7 @@ export interface AnalyzeDeptRow {
   opportunities: number;
   closeRateBps: number;
   avgTicketCents: number;
+  wonRevenueCents: number;
   unsoldCents: number;
 }
 
@@ -295,9 +310,23 @@ export interface AnalyzeResponse {
     closeRateBps: number;
     unsoldCents: number;
     avgTicketCents: number;
+    /** Funnel counts: opportunities = won + unsold + dismissed. */
+    wonCount: number;
+    unsoldCount: number;
+    dismissedCount: number;
+    wonRevenueCents: number;
+    /** Median days from estimate creation to sale, won jobs only. */
+    medianTtcDays: number | null;
   };
-  tierSelection: Array<{ tier: 'low' | 'mid' | 'high'; count: number; pct: number }>;
+  tierSelection: Array<{
+    tier: 'low' | 'mid' | 'high';
+    count: number;
+    pct: number;
+    /** Average won ticket for jobs where this tier was picked. */
+    avgTicketCents: number;
+  }>;
   timeToClose: Array<{ bucket: 'same_day' | 'one_to_7' | 'over_7'; count: number; pct: number }>;
+  valueBands: AnalyzeValueBand[];
   seasonality: SeasonalityPoint[];
   byDept: AnalyzeDeptRow[];
   meta: {
