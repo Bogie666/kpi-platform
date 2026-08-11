@@ -48,12 +48,23 @@ export function FinancialHero({ data, compareMode, pipeline }: FinancialHeroProp
       : data.meta.period === 'QTD'
         ? 'Quarter goal'
         : 'Monthly goal';
-  // Pipeline = won estimates on jobs scheduled in the next 30 days but not
-  // yet invoiced. Show as a quiet second line under the daily-pace meta —
-  // big number stays actual revenue, pipeline doesn't compete for primacy.
+  // Pipeline = won (sold) estimates on work scheduled-but-not-yet-completed
+  // within the selected budget period. Show as a quiet second line under the
+  // daily-pace meta — big number stays actual revenue, pipeline doesn't
+  // compete for primacy. actual + pipeline = period-end projection.
   const pipelineCents = pipeline?.totalCents ?? 0;
   const showPipeline = pipelineCents > 0;
   const combinedCents = total.revenue.value + pipelineCents;
+  // Label the window end from the response (e.g. "through Jul 31") rather
+  // than assuming EOM — QTD/YTD extend to quarter/year end.
+  const pipelineThrough = (() => {
+    const end = pipeline?.windowEnd;
+    if (!end) return 'this period';
+    const monthIdx = Number(end.slice(5, 7)) - 1;
+    const day = Number(end.slice(-2));
+    const abbr = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return `through ${abbr[monthIdx] ?? ''} ${day}`;
+  })();
 
   const subMeta = (
     <div className="flex flex-col gap-0.5">
@@ -77,7 +88,7 @@ export function FinancialHero({ data, compareMode, pipeline }: FinancialHeroProp
           <span className="text-up font-medium">{fmtMoney(pipelineCents)} pipeline</span>
           <span aria-hidden="true" className="text-muted/50">→</span>
           <span className="text-text/80">{fmtMoney(combinedCents)} projected</span>
-          <span className="text-muted/60 text-[11px]">(scheduled work, through EOM)</span>
+          <span className="text-muted/60 text-[11px]">(sold work, {pipelineThrough})</span>
         </span>
       )}
     </div>

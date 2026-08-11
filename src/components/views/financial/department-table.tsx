@@ -42,7 +42,7 @@ export function DepartmentTable({ data, compareMode, pipeline }: DepartmentTable
               <th className="py-2 pr-4 font-normal">Division</th>
               <th
                 className="py-2 pr-4 font-normal text-right"
-                title="Top: revenue invoiced this period. Below: pipeline = won estimates on jobs scheduled in the next 30 days, not yet invoiced."
+                title="Top: revenue invoiced this period. Below: pipeline = won (sold) estimates on scheduled-but-not-yet-completed work within the selected budget period, not yet invoiced."
               >
                 Revenue
               </th>
@@ -111,7 +111,7 @@ export function DepartmentTable({ data, compareMode, pipeline }: DepartmentTable
                           {pipelineCents > 0 && (
                             <span
                               className="text-[11px] text-up"
-                              title={`Pipeline: scheduled work through EOM. Projected: ${fmtMoney(d.revenue.value + pipelineCents)}`}
+                              title={`Pipeline: sold work not yet completed this period. Projected: ${fmtMoney(d.revenue.value + pipelineCents)}`}
                             >
                               +{fmtMoney(pipelineCents)} pipe
                             </span>

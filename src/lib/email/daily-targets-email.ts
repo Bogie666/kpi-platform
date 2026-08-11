@@ -13,8 +13,9 @@
  *   DAILY_TARGETS_EMAILS_HVAC / _PLUMBING / _ELECTRICAL / _DIGEST
  * An unset/empty audience is skipped silently.
  *
- * The numbers use the credit-backlog variant — same as the screen's default
- * view and the methodology footnote baked into the templates.
+ * The numbers use the ignore-backlog variant — same as the screen's default
+ * view (backlog isn't revenue until invoiced) and the methodology footnote
+ * baked into the templates.
  */
 import { DEFAULT_BUSINESS_TZ } from '@/lib/time';
 import { fmtMoney } from '@/lib/format/money';
@@ -225,7 +226,7 @@ function shell(result: DailyTargetsResult, preheader: string, body: string): str
 function methodologyHtml(result: DailyTargetsResult, perDivision: boolean): string {
   const days = result.calendar.remainingWorkdays;
   const whose = perDivision ? "each division's" : 'your';
-  return `Daily target = (budget &minus; MTD &minus; scheduled backlog) &divide; ${days} remaining workday${days === 1 ? '' : 's'}. Jobs needed uses ${whose} trailing 30-day revenue per completed job; calls short credits today's booked maintenance and demand calls. Install divisions count Sales estimate runs as calls. &ldquo;Met&rdquo; = the month's budget is already fully covered. Pace: ahead &ge; 105% of expected-to-date, behind &le; 95%.`;
+  return `Daily target = (budget &minus; MTD) &divide; ${days} remaining workday${days === 1 ? '' : 's'}. Jobs needed uses ${whose} trailing 30-day revenue per completed job; calls short credits today's booked maintenance and demand calls. Install divisions count Sales estimate runs as calls. &ldquo;Met&rdquo; = the month's budget is already fully covered. Pace: ahead &ge; 105% of expected-to-date, behind &le; 95%.`;
 }
 
 function footerHtml(result: DailyTargetsResult, allLine: string): string {
@@ -270,7 +271,7 @@ export function renderDigest(result: DailyTargetsResult): {
   html: string;
   text: string;
 } {
-  const rows = result.divisions;
+  const rows = result.withoutBacklog.divisions;
   const s = summarize(rows);
   const subject =
     s.short > 0
@@ -326,7 +327,7 @@ ${textRows}
 (cov = covered: today's board already covers the daily target)
 
 --
-Daily target = (budget − MTD − scheduled backlog) ÷ ${result.calendar.remainingWorkdays} remaining workdays.
+Daily target = (budget − MTD) ÷ ${result.calendar.remainingWorkdays} remaining workdays.
 Jobs needed uses each division's trailing 30-day revenue per completed job;
 calls short credits today's booked maintenance and demand calls. Install
 divisions count Sales estimate runs as calls.
@@ -343,10 +344,10 @@ export function renderTrade(
   trade: TradeAudience,
   result: DailyTargetsResult,
 ): { subject: string; html: string; text: string } | null {
-  const rows = result.divisions.filter((r) => trade.match(r.code));
+  const rows = result.withoutBacklog.divisions.filter((r) => trade.match(r.code));
   if (rows.length === 0) return null;
   const s = summarize(rows);
-  const all = summarize(result.divisions);
+  const all = summarize(result.withoutBacklog.divisions);
 
   const subject =
     s.short > 0
@@ -464,7 +465,7 @@ ${textRows}
 All divisions: ${all.jobsNeeded} jobs needed · ${fmtMoney(all.dailyTargetCents)} daily target · ${all.onPaceOrAhead} of ${all.withBudget} on pace or ahead
 
 --
-Daily target = (budget − MTD − scheduled backlog) ÷ ${result.calendar.remainingWorkdays} remaining workdays.
+Daily target = (budget − MTD) ÷ ${result.calendar.remainingWorkdays} remaining workdays.
 Jobs needed uses trailing 30-day revenue per completed job. Calls short
 credits today's booked maintenance and demand calls. Install divisions
 count Sales estimate runs as calls.

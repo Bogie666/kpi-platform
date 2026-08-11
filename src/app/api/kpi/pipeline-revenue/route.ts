@@ -1,22 +1,36 @@
 /**
  * GET /api/kpi/pipeline-revenue
  *
- * "Pipeline" = revenue committed via won estimates whose jobs are scheduled
- * but not yet completed. Surfaced on the Financial tab alongside actual
- * revenue: actual is what's already invoiced, pipeline is the next bucket
- * of expected revenue the team has on the books.
+ * "Pipeline" = revenue committed via WON (i.e. sold) estimates whose jobs are
+ * scheduled but NOT yet completed, dated within the selected budget period.
+ * Surfaced on the Financial tab alongside actual revenue: actual is what's
+ * already invoiced (completed), pipeline is the sold-but-not-yet-completed
+ * work we still plan to finish inside the same budget period. Because the two
+ * buckets are disjoint (completed vs. not-completed), actual + pipeline is a
+ * clean month/quarter/year-end projection with no double counting.
+ *
+ * Window (2B): the SELECTED period extended to its budget-period end.
+ *   - mtd / today / rolling  → 1st of month → last day of month
+ *   - qtd                    → 1st of quarter → last day of quarter
+ *   - ytd                    → Jan 1 → Dec 31
+ *   - last_month             → that whole month
+ *   - explicit from/to       → used verbatim
+ * We then keep only appointments that are NOT done and NOT canceled — the
+ * uncompleted sold work we still plan to complete in the period. This spans
+ * past-but-outstanding jobs plus everything scheduled through period end.
+ *
+ * Dollars (1A): WON estimates only. Jobs without a won estimate contribute $0
+ * — we only book value that was actually sold/quoted. Un-quoted service calls
+ * are intentionally excluded so the number reflects committed sold revenue.
  *
  * Algorithm:
- *   1. Live-pull scheduled appointments for the next N days (default 30).
- *   2. Get unique jobIds → ST jobs endpoint for BU mapping.
- *   3. Look up won estimates for those jobIds in estimate_analysis.
- *   4. Sum estimate subtotals per division (via business_units → departments).
+ *   1. Live-pull scheduled appointments across the budget window.
+ *   2. Filter to active + not done/canceled → uncompleted work.
+ *   3. Unique jobIds → ST jobs endpoint for BU mapping + createdFromEstimateId.
+ *   4. Look up WON estimates for those estimateIds in estimate_analysis.
+ *   5. Sum estimate subtotals per division (via business_units → departments).
  *
- * Jobs without a won estimate (most service appointments) contribute $0 —
- * we only know value if it was pre-quoted. Acceptable scope for MVP; the
- * meaningful pipeline number is install-side anyway.
- *
- * Cached client-side for 2 min; ST calls dominate runtime (~5-10 sec).
+ * Cached client-side; ST calls dominate runtime (~5-10 sec).
  */
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
@@ -49,7 +63,7 @@ interface StJob {
 
 export interface PipelineRevenueResponse {
   asOf: string;
-  /** Window the pipeline covers (inclusive both ends, CT-local dates). */
+  /** Budget window the pipeline covers (inclusive both ends, CT-local dates). */
   windowStart: string;
   windowEnd: string;
   /** Total expected pipeline revenue across all divisions, in cents. */
@@ -62,7 +76,7 @@ export interface PipelineRevenueResponse {
   byDivision: Record<string, number>;
 }
 
-/** Same TZ-aware UTC instant helper as upcoming-appointments. */
+/** TZ-aware UTC instant for the local-Chicago start of `localDay` (+addDays). */
 function localDayStartUTC(localDay: string, addDays = 0): string {
   const [y, m, d] = localDay.split('-').map(Number);
   const naive = new Date(Date.UTC(y, m - 1, d + addDays, 0, 0, 0));
@@ -76,37 +90,73 @@ function localDayStartUTC(localDay: string, addDays = 0): string {
   return new Date(naive.getTime() + offsetHours * 3_600_000).toISOString();
 }
 
+/** Last day (1-based month) as a YYYY-MM-DD string. */
+function eom(y: number, m1: number): string {
+  const last = new Date(Date.UTC(y, m1, 0)).getUTCDate();
+  return `${y}-${String(m1).padStart(2, '0')}-${String(last).padStart(2, '0')}`;
+}
+function som(y: number, m1: number): string {
+  return `${y}-${String(m1).padStart(2, '0')}-01`;
+}
+
 /**
- * Default window = today through EOM (CT-local). Lets the value combine
- * cleanly with MTD revenue to project month-end totals. Override via
- * `?endDate=YYYY-MM-DD` for ad-hoc queries (e.g. quarter-end forecast).
+ * The SELECTED period extended to its budget-period end. Explicit from/to
+ * win verbatim; otherwise the preset maps to its enclosing calendar month /
+ * quarter / year. Rolling presets (l7/l30/l90/ttm) fall back to the current
+ * month — they aren't budget-pacing views, but a month-end pipeline is the
+ * sensible default there.
  */
-function lastDayOfMonthISO(localToday: string): string {
-  const [y, m] = localToday.split('-').map(Number);
-  // JS month is 1-based here; new Date(y, m, 0) gives last day of month m.
-  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
-  return `${y}-${String(m).padStart(2, '0')}-${String(last).padStart(2, '0')}`;
+function budgetWindow(
+  preset: string | null,
+  from: string | null,
+  to: string | null,
+  today: string,
+): { start: string; end: string } {
+  if (from && to) return { start: from, end: to };
+  const [y, m] = today.split('-').map(Number);
+  switch (preset ?? 'mtd') {
+    case 'ytd':
+      return { start: `${y}-01-01`, end: `${y}-12-31` };
+    case 'qtd': {
+      const q = Math.floor((m - 1) / 3); // 0..3
+      const qStartMonth = q * 3 + 1;
+      const qEndMonth = qStartMonth + 2;
+      return { start: som(y, qStartMonth), end: eom(y, qEndMonth) };
+    }
+    case 'last_month': {
+      const pm = m === 1 ? 12 : m - 1;
+      const py = m === 1 ? y - 1 : y;
+      return { start: som(py, pm), end: eom(py, pm) };
+    }
+    case 'mtd':
+    case 'today':
+    case 'l7':
+    case 'l30':
+    case 'l90':
+    case 'ttm':
+    default:
+      return { start: som(y, m), end: eom(y, m) };
+  }
 }
 
 export async function GET(req: NextRequest) {
   const today = await localTodayISO();
-  const endDateParam = req.nextUrl.searchParams.get('endDate');
-  // `endDate` is inclusive; convert to an exclusive "starts before" by
-  // adding one day so an appointment scheduled at end-of-day on EOM is
-  // included.
-  const endDate = endDateParam ?? lastDayOfMonthISO(today);
+  const params = req.nextUrl.searchParams;
+  const { start: windowStart, end: windowEnd } = budgetWindow(
+    params.get('preset'),
+    params.get('from'),
+    params.get('to'),
+    today,
+  );
 
-  // Sanity bound: never look more than 365 days forward.
-  const maxForwardMs = 365 * 86_400_000;
-  const todayMs = Date.parse(`${today}T00:00:00Z`);
-  const endMs = Date.parse(`${endDate}T00:00:00Z`);
-  if (!Number.isFinite(endMs) || endMs < todayMs) {
-    // endDate < today — return empty pipeline rather than an error.
+  const startMs = Date.parse(`${windowStart}T00:00:00Z`);
+  const endMs = Date.parse(`${windowEnd}T00:00:00Z`);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) {
     return NextResponse.json({
       data: {
         asOf: new Date().toISOString(),
-        windowStart: today,
-        windowEnd: endDate,
+        windowStart,
+        windowEnd,
         totalCents: 0,
         appointmentsConsidered: 0,
         jobsWithEstimate: 0,
@@ -114,22 +164,20 @@ export async function GET(req: NextRequest) {
       } satisfies PipelineRevenueResponse,
     });
   }
-  const clampedEnd =
-    endMs - todayMs > maxForwardMs
-      ? new Date(todayMs + maxForwardMs).toISOString().slice(0, 10)
-      : endDate;
-  // Number of days to add to `today` to reach the exclusive upper bound.
-  const daysForward =
-    Math.round((Date.parse(`${clampedEnd}T00:00:00Z`) - todayMs) / 86_400_000) + 1;
+  // Exclusive upper bound = day after windowEnd (so an appointment at
+  // end-of-day on the last day is included).
+  const daysSpan =
+    Math.round((endMs - startMs) / 86_400_000) + 1;
 
-  // 1. Active scheduled appointments through the end of the window.
+  // 1. Active scheduled appointments across the budget window.
   const appts = await collectResource<StAppointment>({
     path: '/jpm/v2/tenant/{tenant}/appointments',
     query: {
-      startsOnOrAfter: localDayStartUTC(today, 0),
-      startsBefore: localDayStartUTC(today, daysForward),
+      startsOnOrAfter: localDayStartUTC(windowStart, 0),
+      startsBefore: localDayStartUTC(windowStart, daysSpan),
     },
   });
+  // 2. Keep only uncompleted work: drop canceled/done/inactive/unused.
   const active = appts.filter((a) => {
     if (a.active === false || a.unused === true) return false;
     const status = (a.status ?? '').toLowerCase();
@@ -143,8 +191,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       data: {
         asOf: new Date().toISOString(),
-        windowStart: today,
-        windowEnd: clampedEnd,
+        windowStart,
+        windowEnd,
         totalCents: 0,
         appointmentsConsidered: active.length,
         jobsWithEstimate: 0,
@@ -153,7 +201,7 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // 2. Pull jobs (chunked) for businessUnitId.
+  // 3. Pull jobs (chunked) for businessUnitId + createdFromEstimateId.
   const jobs: StJob[] = [];
   const CHUNK = 50;
   for (let i = 0; i < jobIds.length; i += CHUNK) {
@@ -173,7 +221,7 @@ export async function GET(req: NextRequest) {
   }
   const estimateIds = Array.from(new Set(jobToEstimate.values()));
 
-  // 3. Look up the won-estimate rows by their estimateId. The jobs we
+  // 4. Look up the WON-estimate rows by their estimateId. The jobs we
   // scheduled-pull have createdFromEstimateId pointing at the estimate
   // that triggered the install — NOT at the diagnostic job whose id
   // estimate_analysis.jobId stores. Joining via estimateId sidesteps
@@ -211,9 +259,11 @@ export async function GET(req: NextRequest) {
     if (cents && cents > 0) wonByJob.set(jobId, cents);
   }
 
-  if (req.nextUrl.searchParams.get('debug') === '1') {
+  if (params.get('debug') === '1') {
     return NextResponse.json({
       debug: true,
+      windowStart,
+      windowEnd,
       appointmentsConsidered: active.length,
       uniqueJobIds: jobIds.length,
       jobsWithCreatedFromEstimate: jobToEstimate.size,
@@ -224,14 +274,13 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // 4. Map BU → division code.
+  // 5. Map BU → division code, then roll up.
   const buRows = await database
     .select({ id: businessUnits.id, departmentCode: businessUnits.departmentCode })
     .from(businessUnits);
   const buToDept = new Map<number, string | null>();
   for (const r of buRows) buToDept.set(r.id, r.departmentCode);
 
-  // 5. Roll up.
   let totalCents = 0;
   let jobsWithEstimate = 0;
   const byDivision: Record<string, number> = {};
@@ -248,8 +297,8 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     data: {
       asOf: new Date().toISOString(),
-      windowStart: today,
-      windowEnd: clampedEnd,
+      windowStart,
+      windowEnd,
       totalCents,
       appointmentsConsidered: active.length,
       jobsWithEstimate,

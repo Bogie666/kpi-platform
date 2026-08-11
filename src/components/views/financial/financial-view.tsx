@@ -20,10 +20,15 @@ import { PotentialRevenuePanel } from './potential-revenue-panel';
 export function FinancialView() {
   const [params, setParams] = useDashboardParams();
   const { data, isLoading, error, refetch } = useFinancial(params);
-  // Pipeline default is today → EOM regardless of which period is selected,
-  // so the number is always interpretable as "what this month could still
-  // add". (Could later pivot to follow the period.)
-  const { data: pipeline } = usePipelineRevenue();
+  // Pipeline follows the selected period, extended to its budget-period end
+  // (MTD → month end, QTD → quarter end, YTD → year end). It counts sold-but-
+  // not-yet-completed work, so actual + pipeline = a clean period-end
+  // projection against the revenue budget.
+  const { data: pipeline } = usePipelineRevenue({
+    period: params.period,
+    from: params.from,
+    to: params.to,
+  });
   const { data: newCustomers } = useNewCustomers(params);
 
   const compareOn = params.compare === 'ly' || params.compare === 'ly2';
