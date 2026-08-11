@@ -36,6 +36,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <AdminNavLink href="/admin">Home</AdminNavLink>
             <AdminNavLink href="/setup">Setup</AdminNavLink>
             <AdminNavLink href="/admin/targets">Targets</AdminNavLink>
+            <AdminNavLink href="/admin/settings">Settings</AdminNavLink>
             <AdminNavLink href="/admin/photos">Photos</AdminNavLink>
             <AdminNavLink href="/admin/google-reviews">Google reviews</AdminNavLink>
             <AdminNavLink href="/admin/technician-roles">Tech roles</AdminNavLink>

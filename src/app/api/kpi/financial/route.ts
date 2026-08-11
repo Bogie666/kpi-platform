@@ -17,9 +17,15 @@ import {
   targets,
 } from '@/db/schema';
 import { resolvePeriod, daysInWindow, type Window } from '@/lib/period';
-import { localTodayISO } from '@/lib/time';
+import { localTodayISO, localMinutesOfDay } from '@/lib/time';
 import { loadDivisionModel } from '@/lib/config-service';
 import { monthCalendarContext } from '@/lib/targets/calendar';
+import {
+  elapsedWorkHours,
+  hourlyTargetCents,
+  intradayExpectedCents,
+} from '@/lib/targets/intraday';
+import { getPacingSettings } from '@/lib/settings';
 import {
   divisionDisplayName,
   isMergedAwayDivision,
@@ -454,12 +460,35 @@ export async function GET(req: NextRequest) {
     // divide by zero — the whole remainder lands on the next available day.
     const remainingWorkdays = Math.max(cal.remainingWorkdays, 1);
     const dayTarget = Math.round(remainingBudget / remainingWorkdays);
+
+    // Intraday pace: spread the day target over the configured working day
+    // (admin-set, default 8:00a + 10h) so the card compares revenue against
+    // what should be in the door *by now* rather than the whole day's number.
+    // On weekends/holidays elapsed stays 0 — production is bonus, not behind.
+    const pacing = await getPacingSettings();
+    const workday = {
+      workdayHours: pacing.workdayHours,
+      startHour: pacing.startHour,
+    };
+    const elapsedHours = cal.isWorkdayToday
+      ? elapsedWorkHours(await localMinutesOfDay(), workday)
+      : 0;
+    const expected = intradayExpectedCents(dayTarget, elapsedHours, pacing.workdayHours);
+
     today = {
       date: todayIso,
       revenue: todayRevenue,
       target: dayTarget,
       percentToGoal: dayTarget > 0 ? Math.round((todayRevenue / dayTarget) * 10000) : 0,
       isToday: true,
+      pace: {
+        expected,
+        hourlyTarget: hourlyTargetCents(dayTarget, pacing.workdayHours),
+        elapsedHours,
+        workdayHours: pacing.workdayHours,
+        startHour: pacing.startHour,
+        isWorkday: cal.isWorkdayToday,
+      },
     };
   }
 

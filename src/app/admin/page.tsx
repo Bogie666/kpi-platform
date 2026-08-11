@@ -26,6 +26,13 @@ const SECTIONS: AdminSection[] = [
     status: 'ready',
   },
   {
+    href: '/admin/settings',
+    title: 'Pacing settings',
+    description:
+      'Configure the working day (start time + hours) used for hourly pace on the financial screen. Default 8:00 AM, 10 hours.',
+    status: 'ready',
+  },
+  {
     href: '/admin/photos',
     title: 'Technician photos',
     description:

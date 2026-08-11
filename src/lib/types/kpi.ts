@@ -37,6 +37,28 @@ export interface FinancialTrendPoint {
   target: number;
 }
 
+/**
+ * Intraday pace: the day target spread evenly across the configured working
+ * day, so morning revenue is compared against "what should be in by now"
+ * instead of the whole day's number.
+ */
+export interface IntradayPace {
+  /** Cents expected by now — target × elapsed workday fraction. 0 before the
+   *  workday starts (and all day on weekends/holidays); equals the full day
+   *  target after it ends. */
+  expected: number;
+  /** Target run rate, cents per working hour (target ÷ workdayHours). */
+  hourlyTarget: number;
+  /** Working hours elapsed so far, clamped to [0, workdayHours]. */
+  elapsedHours: number;
+  /** Configured working-day length in hours (admin setting, default 10). */
+  workdayHours: number;
+  /** Configured workday start as an hour-of-day, business-local (default 8). */
+  startHour: number;
+  /** False on weekends/holidays — expected stays 0, production is bonus. */
+  isWorkday: boolean;
+}
+
 export interface DailyPace {
   /** The day being measured, YYYY-MM-DD. */
   date: string;
@@ -48,6 +70,9 @@ export interface DailyPace {
   percentToGoal: number;
   /** true when `date` is the live calendar day (vs. a closed period). */
   isToday: boolean;
+  /** Hour-by-hour pacing context. Optional so older cached payloads and
+   *  closed-period days (where full-day comparison is right) still parse. */
+  pace?: IntradayPace | null;
 }
 
 export interface FinancialResponse {

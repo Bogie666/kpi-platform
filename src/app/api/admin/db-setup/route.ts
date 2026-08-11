@@ -116,6 +116,15 @@ async function runSchema(): Promise<{
   `;
   await sql`CREATE INDEX IF NOT EXISTS google_reviews_loc_idx ON google_reviews (location_id)`;
   await sql`CREATE INDEX IF NOT EXISTS google_reviews_date_idx ON google_reviews (review_date DESC)`;
+  // app_settings — key/value store for operational knobs (e.g. workday
+  // hours for intraday pacing). Edited from /admin/settings.
+  await sql`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key text PRIMARY KEY,
+      value jsonb NOT NULL,
+      updated_at timestamp NOT NULL DEFAULT now()
+    )
+  `;
   await sql`
     CREATE TABLE IF NOT EXISTS google_reviews_sync_status (
       id serial PRIMARY KEY,
@@ -278,7 +287,16 @@ async function runSchema(): Promise<{
   `;
 
   return {
-    tablesEnsured: ['business_units', 'technician_period', 'call_reason_daily', 'job_cancel_reason_daily', 'users'],
+    tablesEnsured: [
+      'business_units',
+      'technician_period',
+      'google_reviews',
+      'kpi_cache',
+      'call_reason_daily',
+      'job_cancel_reason_daily',
+      'users',
+      'app_settings',
+    ],
     columnsEnsured: [
       'financial_daily.closed_opportunities',
       'financial_daily.business_unit_id',

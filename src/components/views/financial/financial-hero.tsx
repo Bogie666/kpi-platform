@@ -28,13 +28,49 @@ function compareModeToStat(m: CompareMode): 'prev' | 'ly' | 'ly2' | 'none' {
   return 'prev';
 }
 
+/** 8 → "8a", 13.5 → "1:30p" — compact clock label for an hour-of-day. */
+function fmtClockHour(hourOfDay: number): string {
+  const h24 = ((hourOfDay % 24) + 24) % 24;
+  let h = Math.floor(h24);
+  let m = Math.round((h24 - h) * 60);
+  if (m === 60) {
+    h = (h + 1) % 24;
+    m = 0;
+  }
+  const suffix = h >= 12 ? 'p' : 'a';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return m > 0 ? `${h12}:${String(m).padStart(2, '0')}${suffix}` : `${h12}${suffix}`;
+}
+
+/** 3 → "3", 3.25 → "3.3" — compact elapsed-hours label. */
+function fmtHours(h: number): string {
+  return Number.isInteger(h) ? String(h) : h.toFixed(1);
+}
+
 export function FinancialHero({ data, compareMode, pipeline }: FinancialHeroProps) {
   const { total, trend } = data;
   const compareOn = compareMode === 'ly' || compareMode === 'ly2';
   const compareYear: 'ly' | 'ly2' = compareMode === 'ly2' ? 'ly2' : 'ly';
 
   const today = total.today;
-  const todayAhead = today ? today.revenue >= today.target : false;
+  // Intraday pace (when the API provides it): compare today's revenue against
+  // the share of the day target that should be in the door *by now* — the day
+  // target spread over the configured working day — instead of the full-day
+  // number, which made every morning read as "behind goal". Falls back to the
+  // full-day comparison for older cached payloads without `pace`.
+  const pace = today?.pace ?? null;
+  const expectedNow = pace ? pace.expected : today?.target ?? 0;
+  const paceLive = pace != null && pace.isWorkday && pace.elapsedHours > 0;
+  const preWorkday = pace != null && pace.isWorkday && pace.elapsedHours <= 0;
+  const offDay = pace != null && !pace.isWorkday;
+  const workdayDone = pace != null && pace.isWorkday && pace.elapsedHours >= pace.workdayHours;
+  // "Ahead" means ahead of where we should be by now. Before the workday (or
+  // on an off day) expected is 0, so any revenue counts as ahead.
+  const todayAhead = today
+    ? expectedNow > 0
+      ? today.revenue >= expectedNow
+      : today.revenue > 0 || !pace
+    : false;
 
   const pctToGoal = total.percentToGoal / 100;
   const fullTarget = total.fullPeriodTarget;
@@ -176,7 +212,7 @@ export function FinancialHero({ data, compareMode, pipeline }: FinancialHeroProp
               <span className="flex items-center gap-2">
                 <LiveDot size="sm" label="" />
                 <span className="text-eyebrow uppercase text-text">
-                  {today.isToday ? 'Today' : 'Final day'} · Daily pace
+                  {today.isToday ? 'Today' : 'Final day'} · {pace ? 'Hourly' : 'Daily'} pace
                 </span>
               </span>
               <span className="font-mono tabular-nums text-[11px] text-muted">
@@ -189,15 +225,28 @@ export function FinancialHero({ data, compareMode, pipeline }: FinancialHeroProp
               <span className="font-mono tabular-nums text-[14px] text-muted">
                 / {fmtMoney(today.target)} target
               </span>
-              <DeltaPill current={today.revenue} previous={today.target} format="percent" />
+              {paceLive ? (
+                <DeltaPill current={today.revenue} previous={expectedNow} format="money" />
+              ) : !pace ? (
+                <DeltaPill current={today.revenue} previous={today.target} format="percent" />
+              ) : null}
             </div>
 
             <div className="flex items-center gap-2.5 mt-3">
-              <div className="h-1.5 flex-1 bg-bg rounded-full overflow-hidden">
+              <div className="relative h-1.5 flex-1 bg-bg rounded-full overflow-hidden">
                 <div
                   className="h-full bg-accent rounded-full transition-[width] duration-300 ease-out"
                   style={{ width: `${Math.min(today.percentToGoal / 100, 100)}%` }}
                 />
+                {/* Pace marker — where the fill should reach by this hour. */}
+                {paceLive && expectedNow > 0 && expectedNow < today.target && (
+                  <div
+                    aria-hidden="true"
+                    className="absolute top-[-2px] bottom-[-2px] w-[2px] bg-text/60 rounded-full"
+                    style={{ left: `${Math.min((expectedNow / today.target) * 100, 100)}%` }}
+                    title={`${fmtMoney(expectedNow)} expected by now`}
+                  />
+                )}
               </div>
               <span
                 className={cn(
@@ -209,12 +258,58 @@ export function FinancialHero({ data, compareMode, pipeline }: FinancialHeroProp
               </span>
             </div>
 
-            <div className="flex items-center justify-between mt-2 text-[11px]">
-              <span className="text-muted">Overall daily revenue vs daily target</span>
-              <span className={cn('font-mono tabular-nums', todayAhead ? 'text-up' : 'text-down')}>
-                {todayAhead ? '+' : ''}{fmtMoney(today.revenue - today.target)}{' '}
-                {todayAhead ? 'ahead of goal' : 'behind goal'}
-              </span>
+            <div className="flex items-center justify-between gap-2 mt-2 text-[11px]">
+              {pace ? (
+                offDay ? (
+                  <>
+                    <span className="text-muted">Non-workday — no pace target</span>
+                    {today.revenue > 0 && (
+                      <span className="font-mono tabular-nums text-up">
+                        +{fmtMoney(today.revenue)} bonus
+                      </span>
+                    )}
+                  </>
+                ) : preWorkday ? (
+                  <>
+                    <span className="text-muted">
+                      Workday starts at {fmtClockHour(pace.startHour)} ·{' '}
+                      {fmtMoney(pace.hourlyTarget)}/hr target
+                    </span>
+                    {today.revenue > 0 && (
+                      <span className="font-mono tabular-nums text-up">
+                        +{fmtMoney(today.revenue)} early start
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <span className="text-muted">
+                      {workdayDone
+                        ? `Workday complete (${fmtHours(pace.workdayHours)}h)`
+                        : `${fmtMoney(expectedNow)} expected by now · ${fmtHours(pace.elapsedHours)}h of ${fmtHours(pace.workdayHours)}h`}{' '}
+                      · {fmtMoney(pace.hourlyTarget)}/hr
+                    </span>
+                    <span
+                      className={cn(
+                        'font-mono tabular-nums whitespace-nowrap',
+                        todayAhead ? 'text-up' : 'text-down',
+                      )}
+                    >
+                      {todayAhead ? '+' : ''}
+                      {fmtMoney(today.revenue - expectedNow)}{' '}
+                      {todayAhead ? 'ahead of pace' : 'behind pace'}
+                    </span>
+                  </>
+                )
+              ) : (
+                <>
+                  <span className="text-muted">Overall daily revenue vs daily target</span>
+                  <span className={cn('font-mono tabular-nums', todayAhead ? 'text-up' : 'text-down')}>
+                    {todayAhead ? '+' : ''}{fmtMoney(today.revenue - today.target)}{' '}
+                    {todayAhead ? 'ahead of goal' : 'behind goal'}
+                  </span>
+                </>
+              )}
             </div>
           </div>
         )}

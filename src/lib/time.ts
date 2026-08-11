@@ -31,6 +31,24 @@ export async function localTodayISO(now: Date = new Date()): Promise<string> {
   return parts;
 }
 
+/**
+ * Minutes since midnight in the business timezone (0–1439). Drives the
+ * intraday pace math — "how far into the working day are we?".
+ */
+export async function localMinutesOfDay(now: Date = new Date()): Promise<number> {
+  const tz = await getBusinessTz();
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(now);
+  const get = (type: string) =>
+    Number(parts.find((p) => p.type === type)?.value ?? 0);
+  // Intl emits hour "24" for midnight in some environments; normalize to 0.
+  return (get('hour') % 24) * 60 + get('minute');
+}
+
 /** Shift a YYYY-MM-DD string by `days` (positive or negative). */
 export function shiftISO(iso: string, days: number): string {
   const [y, m, d] = iso.split('-').map(Number);
