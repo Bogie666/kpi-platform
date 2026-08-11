@@ -31,6 +31,7 @@ import {
   isMergedAwayDivision,
   mergeDivisionCode,
 } from '@/lib/divisions';
+import { computePotential } from '@/lib/potential';
 import type { CompareValue, FinancialResponse } from '@/lib/types/kpi';
 
 export const dynamic = 'force-dynamic';
@@ -532,66 +533,61 @@ export async function GET(req: NextRequest) {
   // "Dismissed", and "Not Attempted" — there's no "Open" / "In Progress"
   // in this tenant's data, so every active estimate looks like "Not
   // Attempted" until a sale or dismissal flips it. We don't filter on
-  // raw status; the per-job de-dup below is what cuts the multi-option
-  // inflation that previously made the number look crazy.
+  // raw status; the per-job de-dup and won-job exclusion (see
+  // lib/potential.ts) are what keep the face-value number honest.
   const thirtyAgoDate = new Date(Date.now() - 30 * 86_400_000);
   const thirtyAgo = thirtyAgoDate.toISOString().slice(0, 10);
   const sevenAgoDate = new Date(Date.now() - 7 * 86_400_000);
-  const unsoldRaw = await database
-    .select({
-      estimateId: estimateAnalysis.estimateId,
-      jobId: estimateAnalysis.jobId,
-      createdOn: estimateAnalysis.createdOn,
-      subtotalCents: estimateAnalysis.subtotalCents,
-      departmentCode: estimateAnalysis.departmentCode,
-    })
-    .from(estimateAnalysis)
-    .where(
-      and(
-        eq(estimateAnalysis.opportunityStatus, 'unsold'),
-        gte(estimateAnalysis.createdOn, thirtyAgo),
-      ),
-    );
-
-  // Collapse to one row per (job-or-estimate, dept). For each opportunity
-  // we keep the MIN subtotal across its options — the "good" tier price.
-  // A customer who buys at all is most likely to choose the cheapest of
-  // what was offered, so this is a conservative floor on potential
-  // revenue. Averaging across options inflates the number toward the
-  // mid/best tier prices, which over-promises.
-  const perJob = new Map<string, { dept: string | null; created: string; minCents: number }>();
-  for (const r of unsoldRaw) {
-    const key = `${r.jobId ?? `est:${r.estimateId}`}|${r.departmentCode ?? ''}`;
-    const sub = Number(r.subtotalCents);
-    const existing = perJob.get(key);
-    if (existing) {
-      if (sub < existing.minCents) existing.minCents = sub;
-      if (r.createdOn < existing.created) existing.created = r.createdOn;
-    } else {
-      perJob.set(key, {
-        dept: r.departmentCode,
-        created: r.createdOn,
-        minCents: sub,
-      });
-    }
-  }
-
-  const unsoldByDept = new Map<string, { hot: number; warm: number }>();
-  let unsoldHotTotal = 0, unsoldWarmTotal = 0, unsoldJobCount = 0;
   const sevenAgoStr = sevenAgoDate.toISOString().slice(0, 10);
-  for (const v of perJob.values()) {
-    const value = v.minCents;
-    const isHot = v.created > sevenAgoStr;
-    unsoldJobCount += 1;
-    if (isHot) unsoldHotTotal += value; else unsoldWarmTotal += value;
-    if (v.dept) {
-      const code = mergeDivisionCode(v.dept);
-      const prior = unsoldByDept.get(code) ?? { hot: 0, warm: 0 };
-      if (isHot) prior.hot += value; else prior.warm += value;
-      unsoldByDept.set(code, prior);
-    }
+  // Jobs that already sold an option: their remaining unsold good/better/
+  // best siblings are not potential — the sale is already in revenue.
+  // Look back 60 days (the report sync's maintained window) so a won
+  // option created before the 30-day candidate window still excludes.
+  const sixtyAgo = new Date(Date.now() - 60 * 86_400_000).toISOString().slice(0, 10);
+  const [unsoldRaw, wonJobRows] = await Promise.all([
+    database
+      .select({
+        estimateId: estimateAnalysis.estimateId,
+        jobId: estimateAnalysis.jobId,
+        createdOn: estimateAnalysis.createdOn,
+        subtotalCents: estimateAnalysis.subtotalCents,
+        departmentCode: estimateAnalysis.departmentCode,
+      })
+      .from(estimateAnalysis)
+      .where(
+        and(
+          eq(estimateAnalysis.opportunityStatus, 'unsold'),
+          gte(estimateAnalysis.createdOn, thirtyAgo),
+        ),
+      ),
+    database
+      .selectDistinct({ jobId: estimateAnalysis.jobId })
+      .from(estimateAnalysis)
+      .where(
+        and(
+          eq(estimateAnalysis.opportunityStatus, 'won'),
+          gte(estimateAnalysis.createdOn, sixtyAgo),
+        ),
+      ),
+  ]);
+
+  const wonJobIds = new Set<number>();
+  for (const r of wonJobRows) {
+    if (r.jobId != null) wonJobIds.add(Number(r.jobId));
   }
-  const unsoldTotal = unsoldHotTotal + unsoldWarmTotal;
+
+  const unsold = computePotential(
+    unsoldRaw.map((r) => ({
+      estimateId: r.estimateId,
+      jobId: r.jobId != null ? Number(r.jobId) : null,
+      createdOn: r.createdOn,
+      subtotalCents: Number(r.subtotalCents),
+      departmentCode: r.departmentCode ? mergeDivisionCode(r.departmentCode) : null,
+    })),
+    wonJobIds,
+    sevenAgoStr,
+  );
+  const unsoldByDept = unsold.byDept;
 
   const body: FinancialResponse = {
     total: {
@@ -644,10 +640,11 @@ export async function GET(req: NextRequest) {
       memberships: compareValue(memActive, memLy, memLy2, 'count'),
     },
     potential: {
-      total: unsoldTotal,
-      hot: unsoldHotTotal,
-      warm: unsoldWarmTotal,
-      jobCount: unsoldJobCount,
+      total: unsold.totalCents,
+      hot: unsold.hotCents,
+      warm: unsold.warmCents,
+      jobCount: unsold.jobCount,
+      soldJobsExcluded: unsold.soldJobsExcluded,
       byDept: deptList
         .filter((d) => !isMergedAwayDivision(d.code))
         .map((d) => {

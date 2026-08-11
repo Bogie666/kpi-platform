@@ -108,8 +108,12 @@ export interface FinancialResponse {
     /** 8–30 days old — warm, still actionable with a callback. */
     warm: number;
     /** Number of distinct jobs (customers) contributing to the pipeline.
-     *  Multiple estimates on the same job are averaged into one. */
+     *  Multiple estimates on the same job collapse to the cheapest option. */
     jobCount: number;
+    /** Jobs dropped because one of their options already sold — the losing
+     *  siblings aren't potential, the sale is already in revenue. Optional
+     *  so older cached payloads still parse. */
+    soldJobsExcluded?: number;
     byDept: Array<{ code: string; name: string; hot: number; warm: number }>;
   };
   meta: {

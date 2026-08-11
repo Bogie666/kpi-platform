@@ -26,6 +26,12 @@ export function PotentialRevenuePanel({ data }: { data: FinancialResponse }) {
             across {potential.jobCount} open opportunit{potential.jobCount === 1 ? 'y' : 'ies'}
             <span className="text-muted/60"> · avg per job</span>
           </div>
+          {(potential.soldJobsExcluded ?? 0) > 0 && (
+            <div className="text-[11px] text-muted/70">
+              {potential.soldJobsExcluded} job{potential.soldJobsExcluded === 1 ? '' : 's'} excluded
+              — an option already sold
+            </div>
+          )}
           <div className="flex items-center gap-4 text-[12px] font-mono tabular-nums">
             <span className="flex items-center gap-1.5">
               <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
