@@ -24,8 +24,12 @@ import {
   type TechnicianReportConfigDraft,
 } from './StepTechnicianReports';
 import { StepWeather, type WeatherLocationDraft } from './StepWeather';
+import {
+  StepEstimateAnalysisReport,
+  type EstimateAnalysisReportValues,
+} from './StepEstimateAnalysisReport';
 
-const STEP_LABELS = ['Company', 'ServiceTitan', 'Divisions', 'Technician reports', 'Google reviews', 'Weather'];
+const STEP_LABELS = ['Company', 'ServiceTitan', 'Divisions', 'Technician reports', 'Estimate analysis', 'Google reviews', 'Weather'];
 const LAST_STEP = STEP_LABELS.length;
 
 interface SetupState {
@@ -178,6 +182,19 @@ export function SetupWizard() {
       )}
 
       {activeStep === 5 && (
+        <StepEstimateAnalysisReport
+          saving={saving}
+          initial={{
+            estimate_analysis_report_category: (cfg.estimate_analysis_report_category as string) ?? 'operations',
+            estimate_analysis_report_id: (cfg.estimate_analysis_report_id as string) ?? '',
+          }}
+          onSave={(values: EstimateAnalysisReportValues) =>
+            postStep(5, 'estimate-analysis', values as unknown as Record<string, unknown>)
+          }
+        />
+      )}
+
+      {activeStep === 6 && (
         <StepGoogleReviews
           saving={saving}
           initialCreds={{
@@ -206,7 +223,7 @@ export function SetupWizard() {
                 if (!lj.ok) throw new Error(lj.error ?? 'Failed to save locations');
               }
               await postStep(
-                5,
+                6,
                 'google-reviews',
                 payload.skip ? {} : (payload.creds as unknown as Record<string, unknown>),
               );
@@ -218,7 +235,7 @@ export function SetupWizard() {
         />
       )}
 
-      {activeStep === 6 && (
+      {activeStep === 7 && (
         <StepWeather
           saving={saving}
           initialLocations={[]}
@@ -237,7 +254,7 @@ export function SetupWizard() {
                 const j = (await res.json()) as { ok?: boolean; error?: string };
                 if (!j.ok) throw new Error(j.error ?? 'Failed to save weather locations');
               }
-              await postStep(6, 'weather', {}, true);
+              await postStep(7, 'weather', {}, true);
             } catch (err) {
               setError(err instanceof Error ? err.message : String(err));
               setSaving(false);

@@ -1,8 +1,8 @@
 /**
- * Estimate Analysis sync (report-based). Pulls ST report 399168856
- * "RYAN Estimate Analysis (DFW)" (Operations category) for a date window
- * and replaces every row in `estimate_analysis` whose createdOn falls in
- * that window.
+ * Estimate Analysis sync (report-based). Pulls the tenant-configured
+ * ServiceTitan Estimate Analysis report (with the legacy Lex default as a
+ * safe fallback) for a date window and replaces every row in
+ * `estimate_analysis` whose createdOn falls in that window.
  *
  * Unlike the raw /sales/v2/estimates endpoint (which is open-only), this
  * report includes won/dismissed/unsold all in one shot with the analyst
@@ -19,6 +19,7 @@ import { and, eq, gte, lte, sql } from 'drizzle-orm';
 import { db } from '@/db/client';
 import { businessUnits, estimateAnalysis } from '@/db/schema';
 import { getAccessToken, readStConfig } from './auth';
+import { getConfig } from '@/lib/config-service';
 import {
   startSyncRun,
   finishSyncRunSuccess,
@@ -28,8 +29,19 @@ import {
 
 export const ESTIMATE_ANALYSIS_REPORT_SOURCE = 'st_estimate_analysis_report';
 
-const REPORT_ID = '399168856';
-const REPORT_CATEGORY = 'operations';
+const DEFAULT_REPORT_ID = '399168856';
+const DEFAULT_REPORT_CATEGORY = 'operations';
+
+async function reportConfig(): Promise<{ reportId: string; category: string }> {
+  const [reportIdRaw, categoryRaw] = await Promise.all([
+    getConfig('estimate_analysis_report_id'),
+    getConfig('estimate_analysis_report_category'),
+  ]);
+  return {
+    reportId: reportIdRaw?.trim() || DEFAULT_REPORT_ID,
+    category: categoryRaw?.trim() || DEFAULT_REPORT_CATEGORY,
+  };
+}
 
 export interface EstimateAnalysisSyncResult {
   runId: number | null;
@@ -60,9 +72,10 @@ async function runStReport(
   parameters: Array<{ name: string; value: unknown }>,
   page = 1,
 ): Promise<StReportDataPage> {
+  const report = await reportConfig();
   const cfg = await readStConfig();
   const token = await getAccessToken(cfg);
-  const url = `${cfg.apiBase}/reporting/v2/tenant/${cfg.tenantId}/report-category/${REPORT_CATEGORY}/reports/${REPORT_ID}/data?page=${page}&pageSize=5000`;
+  const url = `${cfg.apiBase}/reporting/v2/tenant/${cfg.tenantId}/report-category/${report.category}/reports/${report.reportId}/data?page=${page}&pageSize=5000`;
 
   const MAX_ATTEMPTS = 6;
   let attempt = 0;
@@ -89,7 +102,7 @@ async function runStReport(
     }
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      throw new Error(`run report ${REPORT_ID}: ${res.status} ${body.slice(0, 300)}`);
+      throw new Error(`run report ${report.reportId}: ${res.status} ${body.slice(0, 300)}`);
     }
     return (await res.json()) as StReportDataPage;
   }
@@ -285,10 +298,11 @@ export async function syncEstimateAnalysisReport(
   window: EstimateAnalysisSyncWindow,
   trigger: SyncTrigger,
 ): Promise<EstimateAnalysisSyncResult> {
+  const report = await reportConfig();
   const start = await startSyncRun({
     source: ESTIMATE_ANALYSIS_REPORT_SOURCE,
     trigger,
-    reportId: REPORT_ID,
+    reportId: report.reportId,
     windowStart: window.from,
     windowEnd: window.to,
   });
