@@ -84,10 +84,9 @@ export function FinancialHero({ data, compareMode, pipeline }: FinancialHeroProp
       : data.meta.period === 'QTD'
         ? 'Quarter goal'
         : 'Monthly goal';
-  // Pipeline = won (sold) estimates on work scheduled-but-not-yet-completed
-  // within the selected budget period. Show as a quiet second line under the
-  // daily-pace meta — big number stays actual revenue, pipeline doesn't
-  // compete for primacy. actual + pipeline = period-end projection.
+  // Pipeline = live ServiceTitan backlog (Scheduled/In Progress jobs with an
+  // appointment from today through month end). Show it as a quiet second line;
+  // actual revenue remains the primary measure.
   const pipelineCents = pipeline?.totalCents ?? 0;
   const showPipeline = pipelineCents > 0;
   const combinedCents = total.revenue.value + pipelineCents;
@@ -124,7 +123,7 @@ export function FinancialHero({ data, compareMode, pipeline }: FinancialHeroProp
           <span className="text-up font-medium">{fmtMoney(pipelineCents)} pipeline</span>
           <span aria-hidden="true" className="text-muted/50">→</span>
           <span className="text-text/80">{fmtMoney(combinedCents)} projected</span>
-          <span className="text-muted/60 text-[11px]">(sold work, {pipelineThrough})</span>
+          <span className="text-muted/60 text-[11px]">(live backlog, {pipelineThrough})</span>
         </span>
       )}
     </div>

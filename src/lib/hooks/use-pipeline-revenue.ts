@@ -5,26 +5,18 @@ import type { ApiEnvelope } from '@/lib/types/kpi';
 import type { PipelineRevenueResponse } from '@/app/api/kpi/pipeline-revenue/route';
 
 /**
- * Pipeline revenue — expected $ from WON (sold) estimates on scheduled-but-
- * not-yet-completed work, dated within the selected period's budget window
- * (the period extended to its calendar month/quarter/year end). Pairs with
- * actual revenue so actual + pipeline = a clean period-end projection.
+ * Pipeline revenue — live ServiceTitan Job.total for Scheduled/InProgress
+ * jobs with an active appointment starting today through the tenant-local
+ * current month end. It intentionally does not follow the dashboard period
+ * selector: this mirrors the Operations report's forward-looking pipeline.
  *
- * Follows the dashboard period selector: pass the current preset (and any
- * explicit from/to) so the pipeline window tracks the view. Long stale time
- * (5 min) since the underlying data doesn't churn minute-to-minute and the
- * endpoint hits ST live.
+ * Long stale time (5 min) since the endpoint reads live ServiceTitan data.
  */
-export function usePipelineRevenue(
-  opts: { period?: string; from?: string | null; to?: string | null } = {},
-) {
+export function usePipelineRevenue() {
   return useQuery<PipelineRevenueResponse>({
-    queryKey: ['pipeline-revenue', opts.period ?? 'mtd', opts.from ?? null, opts.to ?? null],
+    queryKey: ['pipeline-revenue'],
     queryFn: async () => {
       const url = new URL('/api/kpi/pipeline-revenue', window.location.origin);
-      if (opts.period) url.searchParams.set('preset', opts.period);
-      if (opts.from) url.searchParams.set('from', opts.from);
-      if (opts.to) url.searchParams.set('to', opts.to);
       const res = await fetch(url.toString());
       if (!res.ok) throw new Error(`Pipeline revenue fetch failed: ${res.status}`);
       const json = (await res.json()) as ApiEnvelope<PipelineRevenueResponse>;
