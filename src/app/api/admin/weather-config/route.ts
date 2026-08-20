@@ -47,12 +47,30 @@ async function geocodeZip(zip: string): Promise<{ name: string; latitude: number
   return { name: place['place name'], latitude: lat, longitude: lon };
 }
 
+/**
+ * Read weather_cities tolerantly: rows written before setConfig honored
+ * explicit types may be stored as config_type='string', in which case the
+ * typed read returns raw JSON text instead of an array.
+ */
+function parseCities(cfg: unknown): WeatherLocationConfig[] {
+  if (Array.isArray(cfg)) return cfg as WeatherLocationConfig[];
+  if (typeof cfg === 'string' && cfg.trim().startsWith('[')) {
+    try {
+      const parsed = JSON.parse(cfg) as unknown;
+      if (Array.isArray(parsed)) return parsed as WeatherLocationConfig[];
+    } catch {
+      // fall through
+    }
+  }
+  return [];
+}
+
 export async function GET(req: NextRequest) {
   const fail = await requireAdminAuth(req);
   if (fail) return fail;
 
   const cfg = await getConfigTyped<WeatherLocationConfig[]>('weather_cities');
-  const locations = Array.isArray(cfg) ? cfg : [];
+  const locations = parseCities(cfg);
   return NextResponse.json({
     locations: locations.map((l) => ({
       key: l.key,

@@ -238,7 +238,21 @@ export function SetupWizard() {
       {activeStep === 7 && (
         <StepWeather
           saving={saving}
-          initialLocations={[]}
+          initialLocations={(() => {
+            // Prefill from saved weather_cities so revisiting the step shows
+            // the saved zips instead of a blank form. Tolerate both parsed
+            // JSON (config_type='json') and raw JSON text ('string' rows).
+            const raw = cfg.weather_cities;
+            const arr: unknown = Array.isArray(raw)
+              ? raw
+              : typeof raw === 'string' && raw.trim().startsWith('[')
+                ? (() => { try { return JSON.parse(raw) as unknown; } catch { return null; } })()
+                : null;
+            if (!Array.isArray(arr)) return [];
+            return (arr as Array<{ zip?: string; name?: string }>)
+              .filter((l) => l && typeof l.zip === 'string' && l.zip.length > 0)
+              .map((l) => ({ zip: l.zip as string, name: l.name ?? '' }));
+          })()}
           onSave={async (payload: { locations: WeatherLocationDraft[]; skip: boolean }) => {
             setSaving(true);
             setError(null);

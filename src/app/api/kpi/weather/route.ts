@@ -62,8 +62,15 @@ export interface WeatherResponse {
 async function loadCities(): Promise<CityConfig[]> {
   try {
     const cfg = await getConfigTyped<CityConfig[]>('weather_cities');
-    if (Array.isArray(cfg) && cfg.length > 0) {
-      const valid = cfg.filter(
+    // Tolerate rows stored with config_type='string' (raw JSON text): the
+    // typed read returns the unparsed string for those.
+    const arr: unknown = Array.isArray(cfg)
+      ? cfg
+      : typeof cfg === 'string' && (cfg as string).trim().startsWith('[')
+        ? (JSON.parse(cfg as string) as unknown)
+        : null;
+    if (Array.isArray(arr) && arr.length > 0) {
+      const valid = (arr as CityConfig[]).filter(
         (c) => c && typeof c.key === 'string' && typeof c.name === 'string'
           && Number.isFinite(c.latitude) && Number.isFinite(c.longitude),
       );

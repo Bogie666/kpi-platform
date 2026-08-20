@@ -187,9 +187,14 @@ export async function setConfig(
       target: companyConfig.configKey,
       // Don't overwrite type / isSensitive on update unless explicitly passed
       // (the pre-seed migration is the source of truth for those flags).
+      // When a caller DOES pass an explicit type, honor it — otherwise a row
+      // first created as 'string' (e.g. via setManyConfig) can never be
+      // corrected to 'json' and readers get an unparsed string forever.
       set: {
         configValue: stringValue,
         updatedAt: new Date(),
+        ...(opts.type ? { configType: opts.type } : {}),
+        ...(opts.isSensitive != null ? { isSensitive: opts.isSensitive } : {}),
         ...(opts.updatedBy ? { updatedBy: opts.updatedBy } : {}),
       },
     });
