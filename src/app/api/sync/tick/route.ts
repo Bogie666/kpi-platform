@@ -52,6 +52,14 @@ function ttmWindow(): { from: string; to: string } {
   return { from: fromDate.toISOString().slice(0, 10), to: toISO };
 }
 
+/** Trailing N-day window ending today (UTC), as YYYY-MM-DD. */
+function trailingWindow(days: number): { from: string; to: string } {
+  const today = new Date();
+  const toISO = today.toISOString().slice(0, 10);
+  const fromDate = new Date(today.getTime() - days * 86_400_000);
+  return { from: fromDate.toISOString().slice(0, 10), to: toISO };
+}
+
 /** Previous full calendar month — used by the Engagement Top Performers
  *  podium and the TV rotation. Cron-synced so the data is always present
  *  with the exact (start-of-prev-month, end-of-prev-month) window. */
@@ -166,7 +174,12 @@ const SOURCES: SourceConfig[] = [
   {
     source: ESTIMATE_ANALYSIS_REPORT_SOURCE,
     minIntervalMin: 60 * 23, // 1x per day — Analyze view (won/dismissed/unsold)
-    run: () => syncEstimateAnalysisReport(ttmWindow(), 'cron'),
+    // Rolling 62-day window, not TTM: a full-TTM report pull exceeds the
+    // function budget on high-volume tenants (ASI: ~7-9k rows/month via the
+    // rate-limited Reports API). Rows older than ~2 months are effectively
+    // static — the replace-by-window upsert keeps history intact and the
+    // chunked manual backfill (POST /api/sync/run with from/to) seeds it.
+    run: () => syncEstimateAnalysisReport(trailingWindow(62), 'cron'),
   },
   {
     source: ST_TECHNICIANS_SOURCE,
