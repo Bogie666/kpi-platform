@@ -29,7 +29,6 @@ import {
 
 export const ESTIMATE_ANALYSIS_REPORT_SOURCE = 'st_estimate_analysis_report';
 
-const DEFAULT_REPORT_ID = '399168856';
 const DEFAULT_REPORT_CATEGORY = 'operations';
 
 async function reportConfig(): Promise<{ reportId: string; category: string }> {
@@ -37,8 +36,16 @@ async function reportConfig(): Promise<{ reportId: string; category: string }> {
     getConfig('estimate_analysis_report_id'),
     getConfig('estimate_analysis_report_category'),
   ]);
+  const reportId = reportIdRaw?.trim();
+  if (!reportId) {
+    // No tenant-agnostic default exists — saved-report IDs are per-tenant.
+    // Fail with a setup pointer instead of a confusing ST 404.
+    throw new Error(
+      'No estimate analysis report configured. Set the report ID in setup (Estimate Analysis step) first.',
+    );
+  }
   return {
-    reportId: reportIdRaw?.trim() || DEFAULT_REPORT_ID,
+    reportId,
     category: categoryRaw?.trim() || DEFAULT_REPORT_CATEGORY,
   };
 }

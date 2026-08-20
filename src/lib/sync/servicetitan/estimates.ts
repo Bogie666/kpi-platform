@@ -63,14 +63,19 @@ function createdOnDate(e: StEstimate): string {
 }
 
 /**
- * Resolve jobId → businessUnitId by pulling every job modified within the
- * last 3 years in a single paginated sweep. One big read is far cheaper
- * than hundreds of batched `ids=...` calls (each of which costs 500ms of
- * throttle + round-trip). For 100K jobs at 500/page → 200 pages → ~5 min
- * with our rate-limiter, and we only do it once per sync.
+ * Resolve jobId → businessUnitId by pulling jobs modified in the last 90
+ * days in a single paginated sweep. One big read is far cheaper than
+ * hundreds of batched `ids=...` calls (each of which costs 500ms of
+ * throttle + round-trip), and we only do it once per sync.
+ *
+ * 90-day window. Was 3 years originally — fine for a small tenant, but on
+ * high-volume tenants the sweep pushed the function past Vercel's limit on
+ * every cron tick (lexkpi hit the same wall at ~64k jobs). Open estimates
+ * referencing jobs older than 90 days are uncommon enough that narrowing
+ * here is safe for the unsold-pipeline rollup.
  */
 async function loadJobBUsByModifiedWindow(): Promise<Map<number, number | null>> {
-  const modifiedOnOrAfter = new Date(Date.now() - 3 * 365 * 86_400_000)
+  const modifiedOnOrAfter = new Date(Date.now() - 90 * 86_400_000)
     .toISOString();
   const jobs = await collectResource<StJob>({
     path: '/jpm/v2/tenant/{tenant}/jobs',

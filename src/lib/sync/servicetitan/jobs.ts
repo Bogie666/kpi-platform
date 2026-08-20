@@ -370,10 +370,12 @@ export async function syncJobs(
     });
     fetched = jobs.length;
 
-    // Aggregate by (dept, completion_date).
+    // Aggregate by (business_unit, completion_date) — financial_daily's
+    // grain after migration 0006 (unique on business_unit_id, report_date).
+    // departmentCode rides along denormalized for dept-level rollups.
     const agg = new Map<
       string,
-      { dept: string; date: string; jobs: number; opps: number; closedOpps: number }
+      { buId: number; dept: string; date: string; jobs: number; opps: number; closedOpps: number }
     >();
     // Per-jobType breakdown — used for the diagnostic on opps overcounting.
     type TypeStats = { name: string; jobs: number; opps: number; closed: number };
@@ -418,8 +420,8 @@ export async function syncJobs(
         dropped++;
         continue;
       }
-      const key = `${dept}|${date}`;
-      if (!agg.has(key)) agg.set(key, { dept, date, jobs: 0, opps: 0, closedOpps: 0 });
+      const key = `${buId}|${date}`;
+      if (!agg.has(key)) agg.set(key, { buId, dept, date, jobs: 0, opps: 0, closedOpps: 0 });
       const entry = agg.get(key)!;
       entry.jobs += 1;
       if (opp) entry.opps += 1;
@@ -435,6 +437,7 @@ export async function syncJobs(
     }
 
     const rows = Array.from(agg.values()).map((r) => ({
+      businessUnitId: r.buId,
       departmentCode: r.dept,
       reportDate: r.date,
       totalRevenueCents: 0, // Placeholder — preserved by onConflict if row exists.
@@ -453,7 +456,7 @@ export async function syncJobs(
           .insert(financialDaily)
           .values(batch)
           .onConflictDoUpdate({
-            target: [financialDaily.departmentCode, financialDaily.reportDate],
+            target: [financialDaily.businessUnitId, financialDaily.reportDate],
             set: {
               // Only job-derived columns come from this sync. Revenue stays
               // whatever the invoices sync wrote there.

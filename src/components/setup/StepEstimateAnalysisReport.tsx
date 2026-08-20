@@ -74,7 +74,7 @@ export function StepEstimateAnalysisReport({
           <Button type="button" variant="primary" disabled={saving || !valid} onClick={() => onSave({ estimate_analysis_report_category: category.trim(), estimate_analysis_report_id: reportId.trim(), skip: false })}>
             {saving ? 'Saving…' : 'Save estimate report'}
           </Button>
-          <Button type="button" disabled={saving} onClick={() => onSave({ estimate_analysis_report_category: '', estimate_analysis_report_id: '', skip: true })}>
+          <Button type="button" disabled={saving} onClick={() => onSave({ estimate_analysis_report_category: category.trim(), estimate_analysis_report_id: reportId.trim(), skip: true })}>
             Skip for now
           </Button>
         </div>
