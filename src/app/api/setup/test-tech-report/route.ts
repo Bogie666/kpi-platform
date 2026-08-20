@@ -1,17 +1,28 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { requireAdminAuth } from '@/lib/admin-auth';
 import { localTodayISO, shiftISO } from '@/lib/time';
-import { runStReport } from '@/lib/sync/servicetitan/technician-reports';
+import { runStReport, buildReportParameters } from '@/lib/sync/servicetitan/technician-reports';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
 
+interface ReportParameter {
+  name: string;
+  value: unknown;
+}
+
 export async function POST(req: NextRequest) {
   const fail = await requireAdminAuth(req);
   if (fail) return fail;
 
-  let body: { categoryId?: string; reportId?: string; from?: string; to?: string };
+  let body: {
+    categoryId?: string;
+    reportId?: string;
+    from?: string;
+    to?: string;
+    extraParameters?: ReportParameter[];
+  };
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -26,12 +37,17 @@ export async function POST(req: NextRequest) {
 
   const to = body.to ?? (await localTodayISO());
   const from = body.from ?? shiftISO(to, -7);
+  const extraParameters = Array.isArray(body.extraParameters)
+    ? body.extraParameters.filter(
+        (p): p is ReportParameter =>
+          !!p && typeof p === 'object' && typeof p.name === 'string' && p.name.trim() !== '',
+      )
+    : undefined;
+
+  const parameters = buildReportParameters({ from, to }, extraParameters);
 
   try {
-    const result = await runStReport(categoryId, reportId, [
-      { name: 'From', value: from },
-      { name: 'To', value: to },
-    ]);
+    const result = await runStReport(categoryId, reportId, parameters);
     return NextResponse.json({
       ok: true,
       fields: result.fields ?? [],
@@ -41,6 +57,7 @@ export async function POST(req: NextRequest) {
       hasMore: result.hasMore,
       from,
       to,
+      parametersSent: parameters,
     });
   } catch (err) {
     return NextResponse.json(

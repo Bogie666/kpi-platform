@@ -92,6 +92,26 @@ export async function runStReport(
   }
 }
 
+/**
+ * Merge the From/To window with a config's extraParameters. Extras override
+ * window parameters by name (last write wins), letting a report that needs
+ * e.g. DateType — or a nonstandard From/To value — declare it in setup.
+ */
+export function buildReportParameters(
+  window: SyncWindow,
+  extraParameters?: Array<{ name: string; value: unknown }>,
+): Array<{ name: string; value: unknown }> {
+  const merged = new Map<string, { name: string; value: unknown }>();
+  merged.set('From', { name: 'From', value: window.from });
+  merged.set('To', { name: 'To', value: window.to });
+  for (const p of extraParameters ?? []) {
+    if (p && typeof p.name === 'string' && p.name.trim() !== '') {
+      merged.set(p.name, { name: p.name, value: p.value });
+    }
+  }
+  return [...merged.values()];
+}
+
 const DEFAULT_MAPPING: Required<TechnicianReportColumnMapping> = {
   employeeId: 'TechnicianId',
   employeeName: 'Name',
@@ -259,10 +279,11 @@ async function syncTechReportWindow(
     for (const config of configs) {
       try {
         validateConfig(config);
-        const result = await runStReport(config.categoryId, config.reportId, [
-          { name: 'From', value: window.from },
-          { name: 'To', value: window.to },
-        ]);
+        const result = await runStReport(
+          config.categoryId,
+          config.reportId,
+          buildReportParameters(window, config.extraParameters),
+        );
         const index = fieldIndex(result.fields ?? []);
         const rows: Array<typeof technicianPeriod.$inferInsert> = [];
         for (const raw of result.data ?? []) {

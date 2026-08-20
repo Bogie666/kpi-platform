@@ -24,6 +24,11 @@ export interface TechnicianReportColumnMapping {
   technicianTrade?: string;
 }
 
+export interface TechnicianReportParameterDraft {
+  name: string;
+  value: string;
+}
+
 export interface TechnicianReportConfigDraft {
   id: string;
   label: string;
@@ -34,6 +39,8 @@ export interface TechnicianReportConfigDraft {
   active: boolean;
   columnMapping: TechnicianReportColumnMapping;
   detectedFields?: Array<{ name: string; label?: string; dataType?: string }>;
+  /** Extra required report parameters beyond From/To (e.g. DateType=3). */
+  extraParameters?: TechnicianReportParameterDraft[];
 }
 
 export interface StepTechnicianReportsValues {
@@ -116,7 +123,17 @@ export function StepTechnicianReports({
   onSave: (v: StepTechnicianReportsValues) => void | Promise<void>;
 }) {
   const [reports, setReports] = useState<TechnicianReportConfigDraft[]>(
-    initialReports.length > 0 ? initialReports : [newReport()],
+    initialReports.length > 0
+      ? initialReports.map((r) => ({
+          ...r,
+          // Saved configs store typed values (e.g. DateType as number 3);
+          // the inputs need strings.
+          extraParameters: (r.extraParameters ?? []).map((p) => ({
+            name: String(p.name ?? ''),
+            value: p.value != null ? String(p.value) : '',
+          })),
+        }))
+      : [newReport()],
   );
   const [testing, setTesting] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -132,6 +149,19 @@ export function StepTechnicianReports({
     );
   };
 
+  /**
+   * Coerce a parameter value string to the type ST expects: numbers stay
+   * numeric (DateType=3 must be sent as 3, not "3"), booleans become real
+   * booleans, anything else is passed as the raw string.
+   */
+  function coerceParamValue(v: string): unknown {
+    const t = v.trim();
+    if (t !== '' && !Number.isNaN(Number(t))) return Number(t);
+    if (t === 'true') return true;
+    if (t === 'false') return false;
+    return t;
+  }
+
   async function testReport(report: TechnicianReportConfigDraft) {
     setTesting(report.id);
     setMessage(null);
@@ -139,7 +169,13 @@ export function StepTechnicianReports({
       const res = await fetch('/api/setup/test-tech-report', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ categoryId: report.categoryId, reportId: report.reportId }),
+        body: JSON.stringify({
+          categoryId: report.categoryId,
+          reportId: report.reportId,
+          extraParameters: (report.extraParameters ?? [])
+            .filter((p) => p.name.trim() !== '')
+            .map((p) => ({ name: p.name.trim(), value: coerceParamValue(p.value) })),
+        }),
       });
       const j = (await res.json()) as {
         ok?: boolean;
@@ -147,7 +183,26 @@ export function StepTechnicianReports({
         fields?: Array<{ name: string; label?: string; dataType?: string }>;
         rows?: number;
       };
-      if (!j.ok) throw new Error(j.error ?? `Test failed (${res.status})`);
+      if (!j.ok) {
+        const err = j.error ?? `Test failed (${res.status})`;
+        // ST tells us exactly which parameter is missing — surface a hint.
+        const m = /Missed report parameter: \[([^\]]+)\]/i.exec(err);
+        if (m) {
+          const paramName = m[1];
+          update(report.id, {
+            extraParameters: [
+              ...(report.extraParameters ?? []),
+              ...((report.extraParameters ?? []).some((p) => p.name === paramName)
+                ? []
+                : [{ name: paramName, value: '' }]),
+            ],
+          });
+          throw new Error(
+            `${err} — this report requires an extra parameter "${paramName}". A row has been added below; set its value and test again. (For DateType: 0=SoldOn, 1=FollowUp, 2=ParentCompletion, 3=CreationDate.)`,
+          );
+        }
+        throw new Error(err);
+      }
       update(report.id, { detectedFields: j.fields ?? [] });
       setMessage(`Report tested: ${j.rows ?? 0} sample rows, ${j.fields?.length ?? 0} columns detected.`);
     } catch (err) {
@@ -196,6 +251,63 @@ export function StepTechnicianReports({
                 <label className="flex items-end gap-2 text-[12px] text-muted pb-2">
                   <input type="checkbox" checked={r.active} onChange={(e) => update(r.id, { active: e.target.checked })} /> Active
                 </label>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] text-muted">Extra report parameters (beyond From/To — e.g. DateType)</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      update(r.id, {
+                        extraParameters: [...(r.extraParameters ?? []), { name: '', value: '' }],
+                      })
+                    }
+                    className="text-[12px] text-accent hover:underline"
+                  >
+                    + Add parameter
+                  </button>
+                </div>
+                {(r.extraParameters ?? []).map((p, pIdx) => (
+                  <div key={`${r.id}:param:${pIdx}`} className="flex items-center gap-2">
+                    <input
+                      value={p.name}
+                      placeholder="Name (e.g. DateType)"
+                      onChange={(e) =>
+                        update(r.id, {
+                          extraParameters: (r.extraParameters ?? []).map((x, i) =>
+                            i === pIdx ? { ...x, name: e.target.value } : x,
+                          ),
+                        })
+                      }
+                      className="bg-bg border border-border rounded-btn px-3 py-2 text-[13px] text-text focus:outline-none focus:border-accent w-44"
+                    />
+                    <input
+                      value={p.value}
+                      placeholder="Value (e.g. 3)"
+                      onChange={(e) =>
+                        update(r.id, {
+                          extraParameters: (r.extraParameters ?? []).map((x, i) =>
+                            i === pIdx ? { ...x, value: e.target.value } : x,
+                          ),
+                        })
+                      }
+                      className="bg-bg border border-border rounded-btn px-3 py-2 text-[13px] text-text focus:outline-none focus:border-accent w-44"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        update(r.id, {
+                          extraParameters: (r.extraParameters ?? []).filter((_, i) => i !== pIdx),
+                        })
+                      }
+                      className="text-muted hover:text-down transition-colors"
+                      aria-label="Remove parameter"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
               </div>
 
               <div className="flex items-center gap-2 flex-wrap">

@@ -655,6 +655,11 @@ export type TechnicianReportKpiField =
 
 export type TechnicianReportColumnMapping = Partial<Record<TechnicianReportKpiField, string>>;
 
+export interface ReportParameter {
+  name: string;
+  value: unknown;
+}
+
 export interface TechnicianReportConfig {
   id: string;
   label: string;
@@ -664,9 +669,29 @@ export interface TechnicianReportConfig {
   reportId: string;
   active: boolean;
   columnMapping: TechnicianReportColumnMapping;
+  /**
+   * Additional required report parameters beyond From/To (e.g. some saved
+   * reports require DateType). Sent verbatim with each report run; a
+   * parameter named From or To here overrides the window values.
+   */
+  extraParameters?: ReportParameter[];
 }
 
 const TECHNICIAN_REPORT_CONFIG_KEY = 'technician_report_configs';
+
+/**
+ * Report parameters saved from the setup UI arrive as strings; ServiceTitan
+ * requires typed values (DateType must be the number 3, not "3"). Coerce
+ * numeric and boolean strings; leave everything else untouched.
+ */
+function coerceReportParamValue(v: unknown): unknown {
+  if (typeof v !== 'string') return v;
+  const t = v.trim();
+  if (t !== '' && !Number.isNaN(Number(t))) return Number(t);
+  if (t === 'true') return true;
+  if (t === 'false') return false;
+  return t;
+}
 
 function parseTechnicianReportConfigs(value: unknown): TechnicianReportConfig[] {
   if (!value) return [];
@@ -686,6 +711,17 @@ function parseTechnicianReportConfigs(value: unknown): TechnicianReportConfig[] 
         obj.columnMapping && typeof obj.columnMapping === 'object'
           ? (obj.columnMapping as TechnicianReportColumnMapping)
           : {};
+      const extraParameters = Array.isArray(obj.extraParameters)
+        ? (obj.extraParameters as unknown[])
+            .map((p) => {
+              if (!p || typeof p !== 'object') return null;
+              const param = p as Record<string, unknown>;
+              const name = String(param.name ?? '').trim();
+              if (!name) return null;
+              return { name, value: coerceReportParamValue(param.value) } satisfies ReportParameter;
+            })
+            .filter((p): p is ReportParameter => p != null)
+        : undefined;
       return {
         id: String(obj.id ?? `${roleCode}:${departmentCode}:${reportId}`).trim(),
         label,
@@ -695,6 +731,7 @@ function parseTechnicianReportConfigs(value: unknown): TechnicianReportConfig[] 
         reportId,
         active: obj.active !== false,
         columnMapping: mapping,
+        ...(extraParameters && extraParameters.length > 0 ? { extraParameters } : {}),
       } satisfies TechnicianReportConfig;
     })
     .filter((r): r is TechnicianReportConfig => r != null);
