@@ -130,11 +130,16 @@ export async function syncEstimates(
   try {
     const buToDept = await loadBuToDeptCodeMap();
 
-    // Pull every open estimate. ST may have tens of thousands of these
-    // accumulated over years; ~40-80 pages at 500/page is typical.
+    // Pull open estimates created in the last 90 days. An unbounded pull is
+    // not viable on large tenants — ASI has 459k open estimates accumulated
+    // over years (~920 pages), which blows Vercel's function budget every
+    // run. The Financial potential panel only reads unsold estimates created
+    // in the last 30 days (won-exclusions look back 60), so 90 days gives
+    // comfortable margin at ~2 orders of magnitude less data.
+    const createdOnOrAfter = new Date(Date.now() - 90 * 86_400_000).toISOString();
     const estimates = await collectResource<StEstimate>({
       path: '/sales/v2/tenant/{tenant}/estimates',
-      query: { status: 'Open' },
+      query: { status: 'Open', createdOnOrAfter },
     });
 
     const fetched = estimates.length;
