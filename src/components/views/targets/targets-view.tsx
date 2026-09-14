@@ -12,8 +12,10 @@ import { Stat } from '@/components/primitives/stat';
 import { fmtAsOf } from '@/lib/format/date';
 import { fmtMoney } from '@/lib/format/money';
 import { cn } from '@/lib/cn';
+import { DEMAND_CALL_HOURS, MAINT_CALL_HOURS } from '@/lib/targets/compute';
 import type { DailyTargetRow } from '@/lib/targets/compute';
 import type { TrailingSource, PaceStatus } from '@/lib/targets/compute';
+import type { DailyTargetsCapacityTotals } from '@/lib/kpi/daily-targets';
 import type { MonthProjection } from '@/lib/targets/projection';
 
 const STATUS_TONE: Record<PaceStatus, PillTone> = {
@@ -206,6 +208,7 @@ export function TargetsView() {
             rows={view.divisions}
             totalWorkdays={data.calendar.totalWorkdays}
             monthLabel={data.calendar.monthLabel}
+            capacityTotals={data.capacityTotals}
           />
 
           <p className="text-[12px] text-muted leading-relaxed">
@@ -223,9 +226,12 @@ export function TargetsView() {
             booked, at trailing revenue-per-call rates. Capacity left is live from
             ServiceTitan dispatch — unbooked tech-hours still ahead of now, with a
             rough calls-absorbable estimate at ~2.5 tech-hours per demand call.
-            When calls short exceeds capacity, the overflow needs overtime,
-            borrowed techs, or tomorrow&apos;s board. Expand a row for the
-            per-source rates behind the math.
+            When calls short exceeds capacity, the bookable count leads and the
+            overflow shows separately — those calls can&apos;t physically run
+            today, so their revenue rolls forward and raises the remaining
+            days&apos; targets unless overtime or borrowed techs add hours.
+            Expand a row for the per-source rates, the max-achievable-today
+            revenue, and the roll-forward math.
           </p>
         </>
       )}
@@ -378,7 +384,7 @@ function TargetsTable({
                 Demand booked
               </HeaderTh>
               <HeaderTh
-                tip="Demand calls still to book beyond today's board, after crediting booked maintenance and demand at trailing rev/call."
+                tip="Demand calls still to book beyond today's board, after crediting booked maintenance and demand at trailing rev/call. When the raw number exceeds today's remaining capacity, the bookable count leads — the overflow can't physically run today and rolls into future days."
                 align="right"
               >
                 Calls short
@@ -483,11 +489,24 @@ function TargetsTable({
                           (r.demandCallsShort ?? 0) > 0 ? 'text-down' : 'text-up',
                         )}
                       >
-                        {r.demandCallsShort == null
-                          ? '—'
-                          : r.demandCallsShort > 0
-                            ? `+${r.demandCallsShort}`
-                            : 'covered'}
+                        {r.demandCallsShort == null ? (
+                          '—'
+                        ) : r.demandCallsShort === 0 ? (
+                          'covered'
+                        ) : (r.callsBeyondCapacity ?? 0) > 0 ? (
+                          // Capacity caps the ask: lead with what dispatch can
+                          // actually book; the overflow is a different problem
+                          // (capacity), not a booking problem.
+                          <>
+                            +{r.callsBookable}
+                            <span className="text-muted text-[11px] font-normal"> bookable</span>
+                            <div className="text-[11px] text-warning font-normal">
+                              +{r.callsBeyondCapacity} over capacity
+                            </div>
+                          </>
+                        ) : (
+                          `+${r.demandCallsShort}`
+                        )}
                       </td>
                       <td className="py-3 pr-4 text-right font-mono tabular-nums text-[13px] hidden md:table-cell">
                         {r.capacity == null ? (
@@ -577,6 +596,22 @@ function RowDetail({ row }: { row: DailyTargetRow }) {
                   : ''
               }`}
             />
+            {row.capacity.byClass != null &&
+              Object.keys(row.capacity.byClass).length > 0 && (
+                <DetailItem
+                  label="Open hours by crew"
+                  value={(
+                    [
+                      ['maint', row.capacity.byClass.maintenance],
+                      ['demand', row.capacity.byClass.demand],
+                      ['install', row.capacity.byClass.install],
+                    ] as const
+                  )
+                    .filter(([, c]) => c != null)
+                    .map(([label, c]) => `${label} ${c!.openHours.toFixed(1)}h`)
+                    .join(' · ')}
+                />
+              )}
             <DetailItem
               label="Calls short vs capacity"
               value={
@@ -585,6 +620,34 @@ function RowDetail({ row }: { row: DailyTargetRow }) {
                   : row.demandCallsShort === 0
                     ? 'covered — no extra calls needed'
                     : `${row.callsBookable ?? 0} bookable today · ${row.callsBeyondCapacity ?? 0} beyond today's board`
+              }
+            />
+            <DetailItem
+              label="Max achievable today"
+              value={
+                row.achievableRevenueTodayCents != null
+                  ? `${fmtMoney(row.achievableRevenueTodayCents)} at a full board (target ${fmtMoney(row.dailyTargetCents)})`
+                  : '—'
+              }
+            />
+            <DetailItem
+              label="Rolls to future days"
+              value={
+                row.shortfallBeyondCapacityCents == null
+                  ? '—'
+                  : row.shortfallBeyondCapacityCents > 0
+                    ? `${fmtMoney(row.shortfallBeyondCapacityCents)} · ≈ +${fmtMoney(row.carryoverPerDayCents ?? 0)}/day rest of month`
+                    : 'nothing — today’s target fits capacity'
+              }
+            />
+            <DetailItem
+              label="Extra hours to close"
+              value={
+                row.extraHoursToClose == null
+                  ? '—'
+                  : row.extraHoursToClose > 0
+                    ? `~${row.extraHoursToClose}h OT / borrowed techs`
+                    : 'none needed'
               }
             />
           </>
@@ -885,10 +948,12 @@ function MonthCallPlanPanel({
   rows,
   totalWorkdays,
   monthLabel,
+  capacityTotals,
 }: {
   rows: DailyTargetRow[];
   totalWorkdays: number;
   monthLabel: string;
+  capacityTotals: DailyTargetsCapacityTotals | null;
 }) {
   const planned = rows
     .filter((r) => r.monthlyBudgetCents > 0)
@@ -898,15 +963,27 @@ function MonthCallPlanPanel({
       const demandRate = r.trailing.demand?.revenuePerJobCents ?? null;
       const jobsMonth = blendedRate ? r.monthlyBudgetCents / blendedRate : null;
       const demandMonth = demandRate ? r.monthlyBudgetCents / demandRate : null;
+      const jobsDay = jobsMonth != null ? jobsMonth / totalWorkdays : null;
+      const capacityDay = r.capacity?.dayCallsCapacity ?? null;
+      // Install/estimate crews count toward the total ceiling; combined
+      // service divisions get their maint vs demand crews shown separately.
+      const maintCapDay = r.capacity?.dayMaintCallsCapacity ?? null;
+      const demandCapDay = r.capacity?.dayDemandCallsCapacity ?? null;
+      const installCapDay = r.capacity?.dayInstallCallsCapacity ?? null;
       return {
         row: r,
         revPerDay,
         blendedRate,
         demandRate,
         jobsMonth,
-        jobsDay: jobsMonth != null ? jobsMonth / totalWorkdays : null,
+        jobsDay,
         demandMonth,
         demandDay: demandMonth != null ? demandMonth / totalWorkdays : null,
+        capacityDay,
+        maintCapDay,
+        demandCapDay,
+        installCapDay,
+        overCapacity: capacityDay != null && jobsDay != null && jobsDay > capacityDay,
       };
     });
 
@@ -914,6 +991,35 @@ function MonthCallPlanPanel({
 
   const totalJobsMonth = planned.reduce((s, p) => s + (p.jobsMonth ?? 0), 0);
   const totalBudget = planned.reduce((s, p) => s + p.row.monthlyBudgetCents, 0);
+  const jobsDayNeeded = Math.ceil(totalJobsMonth / totalWorkdays);
+  // Company-wide daily physical ceiling: a full day's schedulable tech-hours
+  // at per-crew call durations (maint runs are shorter than demand calls).
+  // Today's board is the yardstick for a "typical" day — a heuristic, same
+  // as the per-division numbers. Falls back to the blended figure when the
+  // crew split is unavailable.
+  const classDay = (hours: number | undefined, perCall: number) =>
+    hours != null && hours > 0 ? Math.floor(hours / perCall) : null;
+  const companyMaintDay = classDay(
+    capacityTotals?.byClass?.maintenance?.fullDayTotalHours,
+    MAINT_CALL_HOURS,
+  );
+  const companyDemandDay = classDay(
+    capacityTotals?.byClass?.demand?.fullDayTotalHours,
+    DEMAND_CALL_HOURS,
+  );
+  const companyInstallDay = classDay(
+    capacityTotals?.byClass?.install?.fullDayTotalHours,
+    DEMAND_CALL_HOURS,
+  );
+  const companyClassSum =
+    (companyMaintDay ?? 0) + (companyDemandDay ?? 0) + (companyInstallDay ?? 0);
+  const companyCapacityDay =
+    companyClassSum > 0
+      ? companyClassSum
+      : capacityTotals != null && capacityTotals.fullDayTotalHours > 0
+        ? Math.floor(capacityTotals.fullDayTotalHours / DEMAND_CALL_HOURS)
+        : null;
+  const companyOverCapacity = companyCapacityDay != null && jobsDayNeeded > companyCapacityDay;
 
   return (
     <Panel eyebrow="Marketing plan" title={`Calls needed to hit ${monthLabel}'s budget`} padding="cozy">
@@ -928,11 +1034,40 @@ function MonthCallPlanPanel({
             <span className="font-mono tabular-nums font-medium">
               ~{Math.ceil(totalJobsMonth).toLocaleString()}
             </span>
-            <span className="text-muted">
+            <span className={cn(companyOverCapacity ? 'text-down' : 'text-muted')}>
               {' '}
-              (~{Math.ceil(totalJobsMonth / totalWorkdays)}/day over {totalWorkdays} workdays)
+              (~{jobsDayNeeded}/day over {totalWorkdays} workdays)
             </span>
           </span>
+          {companyCapacityDay != null && (
+            <span>
+              <span className="text-muted">Daily capacity </span>
+              <span
+                className={cn(
+                  'font-mono tabular-nums font-medium',
+                  companyOverCapacity ? 'text-down' : 'text-up',
+                )}
+              >
+                ~{companyCapacityDay.toLocaleString()} calls/day
+              </span>
+              <span className="text-muted">
+                {' '}
+                ({companyClassSum > 0
+                  ? [
+                      companyMaintDay != null ? `~${companyMaintDay} maint` : null,
+                      companyDemandDay != null ? `~${companyDemandDay} demand` : null,
+                      companyInstallDay != null ? `~${companyInstallDay} install/est` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' + ')
+                  : `${capacityTotals!.fullDayTotalHours.toFixed(0)} tech-hours/day`}
+                {companyOverCapacity
+                  ? ` — ${jobsDayNeeded - companyCapacityDay}/day over the board`
+                  : ''}
+                )
+              </span>
+            </span>
+          )}
         </div>
 
         <div className="overflow-x-auto -mx-2 px-2">
@@ -945,6 +1080,9 @@ function MonthCallPlanPanel({
                 <th className="py-2 pr-4 font-normal text-right hidden lg:table-cell">Rev/job</th>
                 <th className="py-2 pr-4 font-normal text-right">Calls this month</th>
                 <th className="py-2 pr-4 font-normal text-right">Calls/day</th>
+                <th className="py-2 pr-4 font-normal text-right hidden lg:table-cell">Maint cap/day</th>
+                <th className="py-2 pr-4 font-normal text-right hidden lg:table-cell">Demand cap/day</th>
+                <th className="py-2 pr-4 font-normal text-right">Total cap/day</th>
                 <th className="py-2 pr-4 font-normal text-right hidden md:table-cell">Demand rev/call</th>
                 <th className="py-2 font-normal text-right hidden sm:table-cell">Demand calls/day</th>
               </tr>
@@ -974,8 +1112,35 @@ function MonthCallPlanPanel({
                   <td className="py-2.5 pr-4 text-right font-mono tabular-nums text-[14px] font-medium">
                     {p.jobsMonth != null ? Math.ceil(p.jobsMonth).toLocaleString() : '—'}
                   </td>
-                  <td className="py-2.5 pr-4 text-right font-mono tabular-nums text-[14px] font-medium">
+                  <td
+                    className={cn(
+                      'py-2.5 pr-4 text-right font-mono tabular-nums text-[14px] font-medium',
+                      p.overCapacity && 'text-down',
+                    )}
+                  >
                     {p.jobsDay != null ? p.jobsDay.toFixed(1) : '—'}
+                  </td>
+                  <td className="py-2.5 pr-4 text-right font-mono tabular-nums text-[13px] text-muted hidden lg:table-cell">
+                    {p.maintCapDay != null ? `~${p.maintCapDay}` : '—'}
+                  </td>
+                  <td className="py-2.5 pr-4 text-right font-mono tabular-nums text-[13px] text-muted hidden lg:table-cell">
+                    {/* Install divisions' runs are estimate appointments —
+                        their crew hours show here so the column answers
+                        "how many of the calls this plan asks for fit". */}
+                    {p.demandCapDay != null
+                      ? `~${p.demandCapDay}`
+                      : p.installCapDay != null
+                        ? `~${p.installCapDay} est`
+                        : '—'}
+                  </td>
+                  <td className="py-2.5 pr-4 text-right font-mono tabular-nums text-[13px]">
+                    {p.capacityDay != null ? (
+                      <span className={cn(p.overCapacity ? 'text-warning' : 'text-muted')}>
+                        ~{p.capacityDay}
+                      </span>
+                    ) : (
+                      <span className="text-muted">—</span>
+                    )}
                   </td>
                   <td className="py-2.5 pr-4 text-right font-mono tabular-nums text-[13px] text-muted hidden md:table-cell">
                     {p.demandRate != null ? fmtMoney(p.demandRate) : '—'}
@@ -996,6 +1161,17 @@ function MonthCallPlanPanel({
           install divisions, &quot;calls&quot; are estimate runs. Rates are
           trailing 30-day (90 when the sample is thin) and drift as ticket
           sizes move — treat this as a planning yardstick, not a commitment.
+          Capacity columns are the physical ceiling from a full day&apos;s
+          schedulable tech-hours (today&apos;s dispatch board as the
+          yardstick), split by crew: maintenance BUs at ~{MAINT_CALL_HOURS}h
+          per run, demand-service BUs at ~{DEMAND_CALL_HOURS}h per call —
+          separate crews in combined divisions like HVAC Maint/Service, so
+          maintenance hours can&apos;t be spent on demand calls or vice
+          versa. Install/estimate crew hours (shown as &quot;est&quot; where a
+          division has no demand crew) count toward the total. When calls/day
+          needed runs red against the total, the budget asks for more calls
+          than the current roster can physically run — that gap is a
+          staffing/hours decision, not a marketing one.
         </p>
         <p className="text-[12px] text-muted leading-relaxed">
           <span className="font-medium text-text">Calls/day vs demand calls/day:</span>{' '}

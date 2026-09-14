@@ -213,7 +213,153 @@ test('capacity: open hours translate to calls and split the shortfall', () => {
   assert.equal(row.callsBeyondCapacity, 1);
   // (40 − 2.5) / 40 = 93.75% booked.
   assert.ok(Math.abs((row.capacity?.utilization ?? 0) - 0.9375) < 1e-9);
-  assert.ok(row.flags.some((f) => f.includes("exceed today's remaining capacity")));
+  assert.ok(row.flags.some((f) => f.includes("fit today's remaining capacity")));
+});
+
+test('capacity: unreachable target quantified in dollars and roll-forward', () => {
+  // Same setup as above: 1 open-capacity call. Best case today =
+  // $1,350 maint + (1 booked + 1 capacity) × $1,500 = $4,350 vs $5,000 target.
+  const [row] = computeDailyTargets(
+    [
+      division({
+        todaySchedule: { maintenance: 3, demand: 1, install: 0, total: 4 },
+        capacity: { openHours: 2.5, totalHours: 40, techsAvailable: 1, techsTotal: 8 },
+      }),
+    ],
+    midMonth,
+  );
+  assert.equal(row.achievableRevenueTodayCents, 4_350_00);
+  assert.equal(row.shortfallBeyondCapacityCents, 650_00);
+  // $650 spread over the 9 future workdays (10 remaining incl. today).
+  assert.equal(row.carryoverPerDayCents, Math.round(650_00 / 9));
+  // 1 call beyond capacity × 2.5h/call.
+  assert.equal(row.extraHoursToClose, 2.5);
+  assert.ok(row.flags.some((f) => f.includes('rolls forward')));
+});
+
+test('capacity: completed revenue suppresses false overtime recommendations', () => {
+  const [row] = computeDailyTargets(
+    [
+      division({
+        todayRevenueCents: 5_000_00,
+        todaySchedule: { maintenance: 0, demand: 0, install: 0, total: 0 },
+        capacity: { openHours: 0, totalHours: 40, techsAvailable: 0, techsTotal: 8 },
+      }),
+    ],
+    midMonth,
+  );
+  assert.equal(row.remainingTodayCents, 0);
+  assert.equal(row.shortfallBeyondCapacityCents, 0);
+  assert.equal(row.extraHoursToClose, 0);
+  assert.ok(!row.flags.some((f) => f.includes("can't land today")));
+});
+
+test('capacity: non-workdays do not issue same-day capacity recommendations', () => {
+  const [row] = computeDailyTargets(
+    [
+      division({
+        todaySchedule: { maintenance: 0, demand: 0, install: 0, total: 0 },
+        capacity: { openHours: 0, totalHours: 0, techsAvailable: 0, techsTotal: 0 },
+      }),
+    ],
+    { ...midMonth, isWorkdayToday: false },
+  );
+  assert.equal(row.callsBookable, null);
+  assert.equal(row.callsBeyondCapacity, null);
+  assert.equal(row.achievableRevenueTodayCents, null);
+  assert.equal(row.shortfallBeyondCapacityCents, null);
+  assert.equal(row.carryoverPerDayCents, null);
+  assert.equal(row.extraHoursToClose, null);
+});
+
+test('capacity: crew-class split yields per-class and summed day ceilings', () => {
+  const classHours = (fullDayTotalHours: number) => ({
+    openHours: 0,
+    totalHours: 0,
+    fullDayOpenHours: 0,
+    fullDayTotalHours,
+  });
+  const [row] = computeDailyTargets(
+    [
+      division({
+        capacity: {
+          openHours: 20,
+          totalHours: 40,
+          fullDayOpenHours: 25,
+          fullDayTotalHours: 40,
+          // 15h maint crew + 25h demand crew.
+          byClass: { maintenance: classHours(15), demand: classHours(25) },
+          techsAvailable: 5,
+          techsTotal: 8,
+        },
+      }),
+    ],
+    midMonth,
+  );
+  // 15h ÷ 1.5h/run = 10 maint runs; 25h ÷ 2.5h/call = 10 demand calls.
+  assert.equal(row.capacity?.dayMaintCallsCapacity, 10);
+  assert.equal(row.capacity?.dayDemandCallsCapacity, 10);
+  assert.equal(row.capacity?.dayInstallCallsCapacity, null);
+  // Total ceiling = sum of class ceilings, NOT fullDayTotal ÷ 2.5 (= 16):
+  // shorter maint runs mean more total calls fit in the same hours.
+  assert.equal(row.capacity?.dayCallsCapacity, 20);
+});
+
+test('capacity: demand shortfall never borrows maintenance crew hours', () => {
+  const classHours = (openHours: number) => ({
+    openHours,
+    totalHours: openHours,
+    fullDayOpenHours: openHours,
+    fullDayTotalHours: openHours,
+  });
+  const [row] = computeDailyTargets(
+    [
+      division({
+        todaySchedule: { maintenance: 3, demand: 1, install: 0, total: 4 },
+        capacity: {
+          openHours: 10,
+          totalHours: 10,
+          fullDayOpenHours: 10,
+          fullDayTotalHours: 10,
+          byClass: { maintenance: classHours(10) },
+          techsAvailable: 2,
+          techsTotal: 2,
+        },
+      }),
+    ],
+    midMonth,
+  );
+  assert.equal(row.demandCallsShort, 2);
+  assert.equal(row.capacity?.callsCapacity, 0);
+  assert.equal(row.callsBookable, 0);
+  assert.equal(row.callsBeyondCapacity, 2);
+});
+
+test('capacity: full-day hours become the per-day planning ceiling', () => {
+  const [row] = computeDailyTargets(
+    [
+      division({
+        capacity: {
+          openHours: 20,
+          totalHours: 40,
+          fullDayOpenHours: 25,
+          fullDayTotalHours: 60,
+          techsAvailable: 5,
+          techsTotal: 8,
+        },
+      }),
+    ],
+    midMonth,
+  );
+  // 60h full-day ÷ 2.5h/call = 24 calls/day ceiling.
+  assert.equal(row.capacity?.dayCallsCapacity, 24);
+
+  // Older cached payloads without full-day hours degrade to null.
+  const [legacy] = computeDailyTargets(
+    [division({ capacity: { openHours: 20, totalHours: 40, techsAvailable: 5, techsTotal: 8 } })],
+    midMonth,
+  );
+  assert.equal(legacy.capacity?.dayCallsCapacity, null);
 });
 
 test('capacity: plenty of open hours → everything bookable, no flag', () => {
@@ -238,6 +384,10 @@ test('capacity: absent capacity keeps nulls and no capacity flag', () => {
   assert.equal(row.capacity, null);
   assert.equal(row.callsBookable, null);
   assert.equal(row.callsBeyondCapacity, null);
+  assert.equal(row.achievableRevenueTodayCents, null);
+  assert.equal(row.shortfallBeyondCapacityCents, null);
+  assert.equal(row.carryoverPerDayCents, null);
+  assert.equal(row.extraHoursToClose, null);
 });
 
 test('first morning of the month has no pace ratio yet', () => {

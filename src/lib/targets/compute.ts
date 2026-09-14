@@ -49,12 +49,34 @@ export interface TodaySchedule {
   total: number;
 }
 
+/** Hour aggregates for one crew class (maintenance / demand / install BUs)
+ *  within a division's capacity. */
+export interface ClassCapacity {
+  /** Unbooked tech-hours still ahead of now, today. */
+  openHours: number;
+  /** Total schedulable tech-hours still ahead of now, today. */
+  totalHours: number;
+  /** Whole-day figures (past windows included). */
+  fullDayOpenHours: number;
+  fullDayTotalHours: number;
+}
+
 /** Remaining-today dispatch capacity for a division (from ST Capacity API). */
 export interface CapacityInput {
   /** Unbooked tech-hours still ahead of now, today. */
   openHours: number;
   /** Total schedulable tech-hours still ahead of now, today. */
   totalHours: number;
+  /** Whole-day unbooked tech-hours (not filtered to "ahead of now"). */
+  fullDayOpenHours?: number;
+  /** Whole-day schedulable tech-hours — the day's physical envelope, used
+   *  for month-level capacity planning. Optional for older cached payloads. */
+  fullDayTotalHours?: number;
+  /** The same hours split by crew class (from BU classification). Combined
+   *  divisions like HVAC Maint/Service run separate maintenance and demand
+   *  crews — the split keeps their capacities from masquerading as
+   *  interchangeable. Optional for older cached payloads. */
+  byClass?: Partial<Record<SourceClass, ClassCapacity>>;
   techsAvailable: number;
   techsTotal: number;
 }
@@ -62,6 +84,21 @@ export interface CapacityInput {
 export interface CapacityInfo extends CapacityInput {
   /** Rough demand calls the open hours could absorb (openHours ÷ avg call hours). */
   callsCapacity: number;
+  /** Rough calls a FULL day's schedulable hours could absorb — the per-day
+   *  physical ceiling for month-level planning. Sum of the per-class
+   *  ceilings when the crew split is known (maintenance runs are shorter
+   *  than demand calls), else full-day hours at the demand-call figure.
+   *  Null when full-day hours are unavailable. */
+  dayCallsCapacity: number | null;
+  /** Full-day maintenance-run ceiling: maint-crew hours ÷ MAINT_CALL_HOURS.
+   *  Null when the division has no classified maintenance hours. */
+  dayMaintCallsCapacity: number | null;
+  /** Full-day demand-call ceiling: demand-crew hours ÷ DEMAND_CALL_HOURS.
+   *  Null when the division has no classified demand hours. */
+  dayDemandCallsCapacity: number | null;
+  /** Full-day install/estimate-run ceiling (install-crew hours at the
+   *  demand-call figure). Null when there are no classified install hours. */
+  dayInstallCallsCapacity: number | null;
   /** Booked share of remaining schedulable hours, 0-1. Null when no hours. */
   utilization: number | null;
 }
@@ -142,6 +179,19 @@ export interface DailyTargetRow {
   /** Calls short beyond today's remaining capacity — needs overtime,
    *  borrowed techs, or tomorrow's board. Null when unknown. */
   callsBeyondCapacity: number | null;
+  /** Best-case revenue today at trailing rates with every remaining open
+   *  hour filled with demand calls: maint coverage + booked demand + open
+   *  capacity. Null when the demand rate or capacity is unknown. */
+  achievableRevenueTodayCents: number | null;
+  /** Part of today's target that physically can't land today even with a
+   *  full board (target − achievable, floored at 0). Null when unknown. */
+  shortfallBeyondCapacityCents: number | null;
+  /** How much each remaining future workday's target rises if today maxes
+   *  out and the unreachable shortfall rolls forward. Null when unknown. */
+  carryoverPerDayCents: number | null;
+  /** Extra tech-hours (overtime / borrowed techs) needed to fully close
+   *  today's shortfall beyond the open board. Null when unknown. */
+  extraHoursToClose: number | null;
   /** MTD ÷ (budget × elapsed/total workdays). null before the first workday. */
   paceRatio: number | null;
   status: PaceStatus;
@@ -161,8 +211,20 @@ export const PACE_BEHIND = 0.95;
  */
 export const DEMAND_CALL_HOURS = 2.5;
 
+/**
+ * Rough tech-hours a maintenance/tune-up run occupies. Shorter than a
+ * demand call — mostly checklist work with no diagnose-and-sell arc. Same
+ * caveat as DEMAND_CALL_HOURS: a planning heuristic, not billing math.
+ */
+export const MAINT_CALL_HOURS = 1.5;
+
 function divCeil(numerator: number, denominator: number): number {
   return Math.ceil(numerator / denominator);
+}
+
+/** Whole-dollar formatting for flag text (flags are prose, not table cells). */
+function fmtUsd(cents: number): string {
+  return `$${Math.round(cents / 100).toLocaleString('en-US')}`;
 }
 
 export interface ComputeOptions {
@@ -226,8 +288,41 @@ export function computeDailyTargets(
     let capacity: CapacityInfo | null = null;
     let callsBookable: number | null = null;
     let callsBeyondCapacity: number | null = null;
+    let achievableRevenueToday: number | null = null;
+    let shortfallBeyondCapacity: number | null = null;
+    let carryoverPerDay: number | null = null;
+    let extraHoursToClose: number | null = null;
+    let callsOpenHours: number | null = null;
     if (d.capacity) {
-      const callsCapacity = Math.floor(d.capacity.openHours / DEMAND_CALL_HOURS);
+      // Calls short is a demand-side metric, so only demand-crew hours can
+      // absorb it. Install/sales divisions use install crew hours when no
+      // demand crew exists. Never borrow maintenance capacity for demand.
+      // Older cached payloads without a class split retain the aggregate
+      // fallback until their versioned cache expires.
+      const classSplit = d.capacity.byClass;
+      const callClassCapacity = classSplit?.demand ?? classSplit?.install ?? null;
+      callsOpenHours = classSplit
+        ? (callClassCapacity?.openHours ?? 0)
+        : d.capacity.openHours;
+      const callsCapacity = Math.floor(callsOpenHours / DEMAND_CALL_HOURS);
+      const fullDayTotal = d.capacity.fullDayTotalHours ?? null;
+      const classDayCalls = (cls: SourceClass, hoursPerCall: number): number | null => {
+        const h = d.capacity?.byClass?.[cls]?.fullDayTotalHours ?? 0;
+        return h > 0 ? Math.floor(h / hoursPerCall) : null;
+      };
+      const dayMaintCallsCapacity = classDayCalls('maintenance', MAINT_CALL_HOURS);
+      const dayDemandCallsCapacity = classDayCalls('demand', DEMAND_CALL_HOURS);
+      const dayInstallCallsCapacity = classDayCalls('install', DEMAND_CALL_HOURS);
+      const classCeilingSum =
+        (dayMaintCallsCapacity ?? 0) +
+        (dayDemandCallsCapacity ?? 0) +
+        (dayInstallCallsCapacity ?? 0);
+      const dayCallsCapacity =
+        classCeilingSum > 0
+          ? classCeilingSum
+          : fullDayTotal != null && fullDayTotal > 0
+            ? Math.floor(fullDayTotal / DEMAND_CALL_HOURS)
+            : null;
       const utilization =
         d.capacity.totalHours > 0
           ? Math.min(
@@ -238,10 +333,32 @@ export function computeDailyTargets(
               1,
             )
           : null;
-      capacity = { ...d.capacity, callsCapacity, utilization };
-      if (demandCallsShort != null) {
+      capacity = {
+        ...d.capacity,
+        callsCapacity,
+        dayCallsCapacity,
+        dayMaintCallsCapacity,
+        dayDemandCallsCapacity,
+        dayInstallCallsCapacity,
+        utilization,
+      };
+      if (demandCallsShort != null && cal.isWorkdayToday) {
         callsBookable = Math.min(demandCallsShort, callsCapacity);
         callsBeyondCapacity = Math.max(demandCallsShort - callsCapacity, 0);
+      }
+      // Best case today: completed revenue plus every still-booked job and
+      // every remaining demand slot, all at trailing rates. Only issue a
+      // same-day capacity recommendation on a workday.
+      if (cal.isWorkdayToday && demandRate != null && demandRate > 0) {
+        achievableRevenueToday = Math.round(
+          todayRevenue + maintRevenueToday + (demandCallsBooked + callsCapacity) * demandRate,
+        );
+        shortfallBeyondCapacity = Math.max(dailyTarget - achievableRevenueToday, 0);
+        const futureWorkdays = Math.max(cal.remainingWorkdays - 1, 0);
+        carryoverPerDay =
+          futureWorkdays > 0 ? Math.round(shortfallBeyondCapacity / futureWorkdays) : null;
+        const revenueCallsBeyond = divCeil(shortfallBeyondCapacity, demandRate);
+        extraHoursToClose = revenueCallsBeyond * DEMAND_CALL_HOURS;
       }
     }
 
@@ -280,9 +397,17 @@ export function computeDailyTargets(
           : 'Budget already covered by MTD revenue',
       );
     }
-    if (capacity != null && (callsBeyondCapacity ?? 0) > 0) {
+    if (
+      capacity != null &&
+      (callsBeyondCapacity ?? 0) > 0 &&
+      (shortfallBeyondCapacity ?? 0) > 0
+    ) {
+      const impact =
+        carryoverPerDay != null && carryoverPerDay > 0
+          ? ` — ~${fmtUsd(shortfallBeyondCapacity ?? 0)} of today's target can't land today and rolls forward (≈ +${fmtUsd(carryoverPerDay)}/day on remaining days) unless ~${extraHoursToClose}h of extra capacity is added`
+          : ` — ~${fmtUsd(shortfallBeyondCapacity ?? 0)} of today's target can't land today unless ~${extraHoursToClose}h of extra capacity is added`;
       flags.push(
-        `${callsBeyondCapacity} of the calls short exceed today's remaining capacity (${capacity.openHours.toFixed(1)}h open) — needs overtime, borrowed techs, or tomorrow's board`,
+        `Only ${callsBookable} of ${demandCallsShort} calls short fit today's remaining capacity for demand (${(callsOpenHours ?? 0).toFixed(1)}h open)${impact}`,
       );
     }
 
@@ -308,6 +433,10 @@ export function computeDailyTargets(
       capacity,
       callsBookable,
       callsBeyondCapacity,
+      achievableRevenueTodayCents: achievableRevenueToday,
+      shortfallBeyondCapacityCents: shortfallBeyondCapacity,
+      carryoverPerDayCents: carryoverPerDay,
+      extraHoursToClose,
       paceRatio,
       status,
       flags,

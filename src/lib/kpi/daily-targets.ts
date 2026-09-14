@@ -39,14 +39,17 @@ import {
   targets,
 } from '@/db/schema';
 import { collectResource } from '@/lib/sync/servicetitan/raw-client';
-import { fetchTodayCapacity, type DeptCapacityAgg } from '@/lib/sync/servicetitan/capacity';
+import { fetchDayCapacity, type DeptCapacityAgg } from '@/lib/sync/servicetitan/capacity';
 import { getBusinessTz, localDayStartUTC, localTodayISO, shiftISO } from '@/lib/time';
 import { isMergedAwayDivision, mergeDivisionCode, divisionDisplayName } from '@/lib/divisions';
 import { loadDivisionModel } from '@/lib/config-service';
+import { classifyScheduledWork } from '@/lib/kpi/source-class';
+import { loadBuSourceClasses } from '@/lib/kpi/source-class-config';
 import { monthCalendarContext, type MonthCalendarContext } from '@/lib/targets/calendar';
 import { projectMonthAtCurrentPace, type MonthProjection } from '@/lib/targets/projection';
 import {
   computeDailyTargets,
+  type ClassCapacity,
   type DailyTargetRow,
   type DivisionInput,
   type SourceClass,
@@ -69,6 +72,12 @@ export interface DailyTargetsTotals {
 export interface DailyTargetsCapacityTotals {
   openHours: number;
   totalHours: number;
+  /** Whole-day schedulable envelope (past windows included) — the per-day
+   *  physical yardstick for month-level call planning. */
+  fullDayOpenHours: number;
+  fullDayTotalHours: number;
+  /** Company-wide hours split by crew class (maintenance / demand / install). */
+  byClass: Partial<Record<SourceClass, ClassCapacity>>;
   techsAvailable: number;
   techsTotal: number;
   /** Booked share of remaining schedulable hours, 0-1. Null when no hours. */
@@ -138,31 +147,6 @@ function feederTargetFor(jobTypeName: string, buName: string): string {
   for (const r of SALES_FEEDER.buRoutes) if (r.test.test(buName)) return r.into;
   for (const r of SALES_FEEDER.typeRoutes) if (r.test.test(jobTypeName)) return r.into;
   return SALES_FEEDER.defaultInto;
-}
-
-/**
- * Source class from a BU name. The tenant names maintenance and install/
- * sales BUs explicitly (e.g. "LEX Maintenance", "LEX Sales"); everything
- * else is demand service.
- */
-function classifyBuName(name: string): SourceClass {
-  const n = name.toLowerCase();
-  if (/maint/.test(n)) return 'maintenance';
-  if (/install|sales|replace/.test(n)) return 'install';
-  return 'demand';
-}
-
-/**
- * Source class from a job-type name. Maintenance covers the pre-scheduled
- * tune-up style visits (HVAC maintenance, PSI plumbing inspections, ESI
- * electrical inspections); install covers replacements and sales/estimate
- * runs; the rest is demand service.
- */
-function classifyJobType(name: string): SourceClass {
-  const n = name.toLowerCase();
-  if (/maint|tune|psi|esi|inspect|club|filter/.test(n)) return 'maintenance';
-  if (/install|replace|change\s?-?out|sales|estimate|quote|consult/.test(n)) return 'install';
-  return 'demand';
 }
 
 interface StAppointment {
@@ -327,11 +311,10 @@ async function computeDailyTargetsLive(todayIso: string): Promise<DailyTargetsRe
   // Trailing aggregates: blended per division (every row, including legacy
   // null-BU rows) and per source class (BU-classified rows only).
   type Agg = { jobs: number; revenueCents: number };
-  const buClass = new Map<number, SourceClass>();
+  const buClass = await loadBuSourceClasses(buList);
   const buDept = new Map<number, string | null>();
   const buName = new Map<number, string>();
   for (const b of buList) {
-    buClass.set(b.id, classifyBuName(b.name));
     buDept.set(b.id, canonicalDept(b.departmentCode));
     buName.set(b.id, b.name);
   }
@@ -402,7 +385,7 @@ async function computeDailyTargetsLive(todayIso: string): Promise<DailyTargetsRe
           pageSize: 500,
         })
       : Promise.resolve([] as StCompletedJob[]),
-    fetchTodayCapacity({
+    fetchDayCapacity({
       dayStartUtc: localDayStartUTC(todayIso, 0, tz),
       dayEndUtc: localDayStartUTC(todayIso, 1, tz),
       // Sales rows get folded into the HVAC install division below, so its
@@ -413,6 +396,9 @@ async function computeDailyTargetsLive(todayIso: string): Promise<DailyTargetsRe
           dept === SALES_FEEDER.from ? SALES_FEEDER.defaultInto : dept,
         ]),
       ),
+      // Crew-class split (maintenance vs demand vs install BUs) so combined
+      // divisions don't blend crews that can't cover each other's calls.
+      buToClass: buClass,
     }),
   ]);
   // Keep 'done' appointments: dropping them made today's board and backlog
@@ -533,12 +519,10 @@ async function computeDailyTargetsLive(todayIso: string): Promise<DailyTargetsRe
       jobsScheduledToday += 1;
       continue; // counted as a run on its target division, not a sales job
     }
-    // Fall back to the BU's class when the job type is unnamed/unknown.
-    const cls = typeName
-      ? classifyJobType(typeName)
-      : job.businessUnitId != null
-        ? buClass.get(job.businessUnitId) ?? 'demand'
-        : 'demand';
+    const cls = classifyScheduledWork({
+      jobTypeName: typeName,
+      buName: job.businessUnitId != null ? buName.get(job.businessUnitId) : null,
+    });
     const s = scheduleByDept.get(dept) ?? { maintenance: 0, demand: 0, install: 0, total: 0 };
     s[cls] += 1;
     s.total += 1;
@@ -679,6 +663,9 @@ async function computeDailyTargetsLive(todayIso: string): Promise<DailyTargetsRe
     ? {
         openHours: capacitySnapshot.total.openHours,
         totalHours: capacitySnapshot.total.totalHours,
+        fullDayOpenHours: capacitySnapshot.total.fullDayOpenHours,
+        fullDayTotalHours: capacitySnapshot.total.fullDayTotalHours,
+        byClass: capacitySnapshot.total.byClass,
         techsAvailable: capacitySnapshot.total.techsAvailable,
         techsTotal: capacitySnapshot.total.techsTotal,
         utilization:
@@ -716,7 +703,7 @@ async function computeDailyTargetsLive(todayIso: string): Promise<DailyTargetsRe
  * outlives deploys, so without a versioned key a fresh deploy can serve an
  * old-shape payload (missing fields render as dashes) until the TTL expires.
  */
-const PAYLOAD_VERSION = 8;
+const PAYLOAD_VERSION = 10;
 
 /**
  * Cached read. Returns the memoized payload when fresh (< maxAgeMin), else

@@ -104,6 +104,12 @@ function paceText(r: DailyTargetRow): string {
 function shortText(r: DailyTargetRow, compact = false): string {
   if (r.demandCallsShort == null) return '—';
   if (r.demandCallsShort <= 0) return compact ? 'cov' : 'covered';
+  // Capacity caps the ask: lead with what dispatch can actually book.
+  if ((r.callsBeyondCapacity ?? 0) > 0 && r.callsBookable != null) {
+    return compact
+      ? `+${r.callsBookable}/${r.demandCallsShort}`
+      : `+${r.callsBookable} bookable (${r.demandCallsShort} short)`;
+  }
   return `+${r.demandCallsShort}`;
 }
 
