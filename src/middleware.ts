@@ -5,6 +5,10 @@
  * Public (always allowed, no auth check):
  *   /tv/*, /widgets/*, /api/kpi/*, /api/sync/*, /api/auth/*, /api/config, /login
  *
+ * When PUBLIC_DASHBOARD is enabled (per-tenant Vercel env), every non-admin
+ * surface is also public — the main dashboard and /api/tools/* need no login.
+ * /admin, /setup and their APIs stay gated regardless.
+ *
  * Admin-only (session whose email is in ADMIN_EMAILS, OR CRON_SECRET on the API):
  *   /admin/*, /setup/*, /api/admin/*, /api/setup/*
  *
@@ -45,6 +49,17 @@ function isAdminPath(pathname: string): boolean {
     pathname === '/api/setup' || pathname.startsWith('/api/setup/') ||
     pathname === '/api/google' || pathname.startsWith('/api/google/')
   );
+}
+
+/**
+ * When PUBLIC_DASHBOARD is enabled, the main dashboard and its read APIs are
+ * served without a login — only /admin and /setup (and their APIs) stay gated.
+ * Set per-tenant via the Vercel project env so one tenant can go public while
+ * others stay locked down (the middleware lives in the shared repo).
+ */
+function publicDashboardEnabled(): boolean {
+  const v = (process.env.PUBLIC_DASHBOARD ?? '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes' || v === 'on';
 }
 
 function hasCronSecret(req: NextRequest): boolean {
@@ -94,6 +109,13 @@ export async function middleware(req: NextRequest) {
 
   // CRON_SECRET bypass — only for API admin/setup paths (cron jobs + bootstrap).
   if (adminPath && pathname.startsWith('/api/') && hasCronSecret(req)) {
+    return NextResponse.next();
+  }
+
+  // Public-dashboard mode: everything that isn't an admin/setup surface is
+  // served without a login. Admin/setup paths fall through to the session
+  // + admin checks below.
+  if (!adminPath && publicDashboardEnabled()) {
     return NextResponse.next();
   }
 
