@@ -5,7 +5,6 @@ import { TABS, type Tab } from '@/lib/state/url-params';
 
 const LABELS: Record<Tab, string> = {
   financial: 'Financial',
-  targets: 'Daily Targets',
   appointments: 'Appointments',
   technicians: 'Technicians',
   operations: 'Operations',
@@ -16,7 +15,6 @@ const LABELS: Record<Tab, string> = {
 
 const SHORT: Record<Tab, string> = {
   financial: 'Fin',
-  targets: 'Daily',
   appointments: 'Appts',
   technicians: 'Tech',
   operations: 'Ops',

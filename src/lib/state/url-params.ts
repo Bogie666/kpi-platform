@@ -24,7 +24,6 @@ export type CompareMode = (typeof COMPARE_MODES)[number];
 
 export const TABS = [
   'financial',
-  'targets',
   'appointments',
   'technicians',
   'operations',
@@ -36,7 +35,6 @@ export type Tab = (typeof TABS)[number];
 
 export const COMPARE_SUPPORTED: Record<Tab, boolean> = {
   financial: true,
-  targets: false,
   appointments: false,
   technicians: true,
   operations: true,
@@ -53,7 +51,7 @@ export function useDashboardParams() {
       from: parseAsString,
       to: parseAsString,
       compare: parseAsStringEnum([...COMPARE_MODES]).withDefault('none'),
-      role: parseAsString.withDefault('hvac_tech'),
+      role: parseAsString.withDefault('role_1'),
       subtab: parseAsString,
       location: parseAsString.withDefault('all'),
     },
