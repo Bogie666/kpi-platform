@@ -460,7 +460,16 @@ export async function GET(req: NextRequest) {
     // Floor at 1 so a weekend/holiday (no workdays "left incl. today") doesn't
     // divide by zero — the whole remainder lands on the next available day.
     const remainingWorkdays = Math.max(cal.remainingWorkdays, 1);
-    const dayTarget = Math.round(remainingBudget / remainingWorkdays);
+    const catchUpTarget = Math.round(remainingBudget / remainingWorkdays);
+    // Straight-line daily pace: the month's budget spread evenly across all of
+    // its workdays. Used as a floor so the card always shows a meaningful
+    // "normal day" number instead of collapsing to $0 once MTD revenue has
+    // already met the month's budget (catch-up → 0). When the team is behind,
+    // the catch-up figure exceeds the straight line and wins, preserving the
+    // escalating daily pressure.
+    const straightLineTarget =
+      cal.totalWorkdays > 0 ? Math.round(monthBudget / cal.totalWorkdays) : 0;
+    const dayTarget = Math.max(catchUpTarget, straightLineTarget);
 
     // Intraday pace: spread the day target over the configured working day
     // (admin-set, default 8:00a + 10h) so the card compares revenue against
