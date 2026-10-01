@@ -1,223 +1,31 @@
-'use client';
-
-import { useMemo } from 'react';
+"use client";
+import Link from 'next/link';
 import { Panel } from '@/components/primitives/panel';
-import { Stat } from '@/components/primitives/stat';
-import { ComparePill } from '@/components/primitives/compare-pill';
-import { AreaTrend } from '@/components/charts/area-trend';
-import { DualTrend } from '@/components/charts/dual-trend';
-import { TrendLegend } from '@/components/charts/trend-legend';
-import { CompareBanner } from '@/components/layout/compare-banner';
-import { fmtPercent } from '@/lib/format/percent';
-import { fmtCount } from '@/lib/format/count';
-import { membershipsInsights } from '@/lib/insights/operations';
-import type { MembershipsResponse, CompareValue } from '@/lib/types/kpi';
+import type { MembershipsResponse } from '@/lib/types/kpi';
 import type { CompareMode } from '@/lib/state/url-params';
-
-function toStatMode(m: CompareMode): 'prev' | 'ly' | 'ly2' | 'none' {
-  if (m === 'ly') return 'ly';
-  if (m === 'ly2') return 'ly2';
-  return 'prev';
+const count = (n: number | null | undefined) => n == null ? 'Unavailable' : n.toLocaleString('en-US', { maximumFractionDigits: 1 });
+function Metric({ label, value, note, warning = false }: { label: string; value: number | null | undefined; note?: string; warning?: boolean }) {
+  return <Panel padding="tight"><div className="text-eyebrow uppercase text-muted">{label}</div><div className={`text-[28px] font-mono tabular-nums mt-2 ${warning && value ? 'text-down' : ''}`}>{count(value)}</div>{note && <p className="text-[11px] text-muted mt-2 leading-relaxed">{note}</p>}</Panel>;
 }
-
-function asCompareValue(current: number, ly?: number, ly2?: number): CompareValue {
-  return { value: current, ly, ly2, unit: 'count' };
-}
-
-const MONTH_LABELS = ['May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr'];
-
-export interface MembershipsPanelProps {
-  data: MembershipsResponse;
-  compareMode: CompareMode;
-}
-
+export interface MembershipsPanelProps { data: MembershipsResponse; compareMode: CompareMode }
 export function MembershipsPanel({ data, compareMode }: MembershipsPanelProps) {
-  const compareOn = compareMode === 'ly' || compareMode === 'ly2';
-  const compareYear: 'ly' | 'ly2' = compareMode === 'ly2' ? 'ly2' : 'ly';
-  const statMode = toStatMode(compareMode);
-
-  const pctToGoal = (data.active / data.goal) * 100;
-  const lyAggregate = compareYear === 'ly2' ? data.ly2 : data.ly;
-
-  const insights = useMemo(
-    () => (compareOn ? membershipsInsights(data, compareYear) : []),
-    [compareOn, compareYear, data],
-  );
-
-  const historyLabels = MONTH_LABELS.slice(-data.history.length);
-
-  return (
-    <div className="flex flex-col gap-6">
-      {compareOn && insights.length > 0 && (
-        <CompareBanner insights={insights} mode={compareYear} />
-      )}
-
-      {/* Hero */}
-      <Panel className="grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-8 lg:gap-12" padding="cozy">
-        <div className="flex flex-col justify-between gap-6 min-h-[220px]">
-          <div className="flex flex-col gap-2">
-            <span className="text-eyebrow uppercase text-muted">Active Cool Club members</span>
-            <div className="text-display font-mono tabular-nums">{fmtCount(data.active)}</div>
-            <div className="flex items-center gap-2 text-[12px] text-muted font-mono tabular-nums flex-wrap">
-              <span>{fmtCount(data.goal)} goal</span>
-              <span aria-hidden="true" className="h-1 w-1 rounded-full bg-border" />
-              <span>{fmtPercent(Math.round(pctToGoal * 100))} to goal</span>
-              {compareOn && lyAggregate ? (
-                <>
-                  <span aria-hidden="true" className="h-1 w-1 rounded-full bg-border" />
-                  <ComparePill
-                    current={data.active}
-                    comparison={lyAggregate.active}
-                    unit="count"
-                    baseline={compareYear}
-                    size="sm"
-                  />
-                </>
-              ) : (
-                <>
-                  <span aria-hidden="true" className="h-1 w-1 rounded-full bg-border" />
-                  <span>+{data.netMonth} net this month</span>
-                </>
-              )}
-            </div>
-          </div>
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between text-[12px] text-muted">
-              <span className="text-eyebrow uppercase">Progress to goal</span>
-              <span className="font-mono tabular-nums">
-                {fmtCount(data.active)} / {fmtCount(data.goal)}
-              </span>
-            </div>
-            <div className="h-1.5 w-full bg-surface-2 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-accent transition-[width] duration-300 ease-out"
-                style={{ width: `${Math.min(pctToGoal, 100)}%` }}
-              />
-            </div>
-          </div>
-        </div>
-        <div className="min-h-[220px] flex flex-col gap-3">
-          <div className="flex-1 min-h-[180px]">
-            {compareOn ? (
-              <DualTrend
-                data={data.history.map((v, i) => ({
-                  label: historyLabels[i] ?? String(i + 1),
-                  actual: v,
-                  ly: data.lyHistory?.[i],
-                }))}
-                mode={compareYear}
-                unit="count"
-                height={200}
-                showTarget={false}
-              />
-            ) : (
-              <AreaTrend
-                data={data.history.map((v, i) => ({
-                  label: historyLabels[i] ?? String(i + 1),
-                  value: v,
-                }))}
-                unit="count"
-                height={200}
-                showTarget={false}
-              />
-            )}
-          </div>
-          {compareOn && <TrendLegend mode={compareYear} showTarget={false} />}
-        </div>
-      </Panel>
-
-      {/* 4-up KPIs */}
-      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-        <Panel padding="tight">
-          <Stat
-            label="New this month"
-            value={data.newMonth}
-            unit="count"
-            comparison={asCompareValue(data.newMonth, data.ly?.newMonth, data.ly2?.newMonth)}
-            compareMode={statMode}
-          />
-        </Panel>
-        <Panel padding="tight">
-          <Stat label="New this week" value={data.newWeek} unit="count" />
-        </Panel>
-        <Panel padding="tight">
-          <Stat
-            label="Churn MTD"
-            value={data.churnMonth}
-            unit="count"
-            comparison={asCompareValue(data.churnMonth, data.ly?.churnMonth, data.ly2?.churnMonth)}
-            compareMode={statMode}
-          />
-        </Panel>
-        <Panel padding="tight">
-          <Stat
-            label="Net MTD"
-            value={data.netMonth}
-            unit="count"
-            comparison={asCompareValue(data.netMonth, data.ly?.netMonth, data.ly2?.netMonth)}
-            compareMode={statMode}
-          />
-        </Panel>
-      </div>
-
-      {/* Tier breakdown */}
-      <Panel
-        eyebrow="Membership mix"
-        title="By tier"
-        right={
-          <span className="text-[11px] uppercase tracking-[0.08em] text-muted">
-            {compareOn ? `Δ vs ${compareYear === 'ly2' ? '2024' : 'LY'}` : `${fmtCount(data.active)} total`}
-          </span>
-        }
-      >
-        <div className="flex flex-col divide-y divide-border/60">
-          {data.breakdown.map((t) => {
-            const pct = (t.count / data.active) * 100;
-            const color = `var(${t.colorToken})`;
-            return (
-              <div
-                key={t.tier}
-                className="grid items-center py-3 gap-3"
-                style={{
-                  gridTemplateColumns: '10px 1.4fr 72px minmax(0, 2fr) 72px auto',
-                }}
-              >
-                <span
-                  aria-hidden="true"
-                  className="h-2.5 w-2.5 rounded-full"
-                  style={{ background: color }}
-                />
-                <span className="text-[13px] font-medium">{t.tier}</span>
-                <span className="text-[12px] text-muted font-mono tabular-nums">
-                  {t.price > 0 ? `$${t.price}/mo` : '—'}
-                </span>
-                <div className="h-1.5 bg-surface-2 rounded-full overflow-hidden">
-                  <div
-                    className="h-full transition-[width] duration-300 ease-out"
-                    style={{ width: `${pct}%`, background: color }}
-                  />
-                </div>
-                <span className="text-right text-[14px] font-mono tabular-nums font-medium">
-                  {fmtCount(t.count)}
-                </span>
-                {compareOn && t.lyCount !== undefined ? (
-                  <ComparePill
-                    current={t.count}
-                    comparison={t.lyCount}
-                    unit="count"
-                    baseline={compareYear}
-                    size="sm"
-                  />
-                ) : (
-                  <span className="text-[12px] text-muted font-mono tabular-nums w-10 text-right">
-                    {pct.toFixed(0)}%
-                  </span>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </Panel>
-    </div>
-  );
+  const h = data.health;
+  const progress = data.active != null && data.goal != null && data.goal > 0 ? data.active / data.goal * 100 : null;
+  const startsCovered = !!data.goalDetails.starts && data.goalDetails.starts.effectiveFrom <= data.meta.from && data.goalDetails.starts.effectiveTo >= data.meta.to;
+  const startProgress = startsCovered && data.newMonth != null && data.newGoal != null && data.newGoal > 0 ? data.newMonth / data.newGoal * 100 : null;
+  const comparison = compareMode === 'ly2' ? data.ly2 : data.ly;
+  const plans = data.breakdown.filter(p => p.count > 0);
+  return <div className="flex flex-col gap-6">
+    <Panel padding="cozy" className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div><div className="text-eyebrow uppercase text-muted">Active memberships</div><div className="text-display font-mono tabular-nums my-3">{count(data.active)}</div><p className="text-[12px] text-muted">Current company-wide snapshot: {data.meta.snapshotDate ?? 'Not available'} · {data.meta.timezone}</p><p className="text-[12px] text-muted mt-2">Active goal: {data.goal == null ? 'Not set' : count(data.goal)}{progress != null && ` · ${progress.toFixed(1)}% attained`}</p>{progress != null && <div className="h-2 rounded-full bg-surface-2 mt-3 overflow-hidden" role="progressbar" aria-label="Active membership goal attainment" aria-valuenow={Math.min(100, progress)} aria-valuemin={0} aria-valuemax={100}><div className="h-full bg-accent" style={{width:`${Math.min(100, progress)}%`}} /></div>}<Link className="text-[12px] text-accent inline-block mt-3 underline" href="/admin/membership-goals">Manage membership goals</Link>{(compareMode === 'ly' || compareMode === 'ly2') && <p className="text-[11px] text-muted mt-2">Historical active membership comparison: {comparison ? count(comparison.active) : 'Unavailable. Observed snapshots are required.'}</p>}</div>
+      <div className="flex flex-col justify-center"><div className="text-eyebrow uppercase text-muted">Renewal follow-up</div><div className="text-[44px] font-mono tabular-nums mt-2">{count(h?.expiringUnder30)}</div><div className="text-[15px] mt-1">Active memberships with an end date in less than 30 days</div><p className="text-[12px] text-muted mt-2">{h?.expiringUnder30Pct == null ? 'Share of active memberships unavailable' : `${h.expiringUnder30Pct.toFixed(1)}% of active memberships`}</p><p className="text-[12px] text-muted mt-3 leading-relaxed">An upcoming end date is a follow-up signal, not confirmed churn. Auto-renewal behavior is not verified. Memberships with no recorded end date are reported separately.</p></div>
+    </Panel>
+    {!data.meta.snapshotDate && <Panel padding="tight"><p role="status">Membership data is unavailable until a complete ServiceTitan sync succeeds.</p></Panel>}
+    <div><h3 className="text-[16px] font-semibold mb-3">Activity in selected period</h3><p className="text-[12px] text-muted mb-4">{data.meta.from} through {data.meta.to}. Starts use the membership contract start date, not a verified sales date.</p><div className="grid grid-cols-2 lg:grid-cols-4 gap-4"><Metric label="Membership starts" value={data.newMonth} note={data.newGoal == null ? 'New-start goal: Not set' : `Goal: ${count(data.newGoal)}${startProgress == null ? ' · effective-window goal' : ` · ${startProgress.toFixed(1)}% attained`}`} /><Metric label="Cancellations" value={data.churnMonth} note="Canceled status and cancellation date" warning /><Metric label="Expirations" value={data.expirations} note="Expired status and contract end date" warning /><Metric label="Net activity" value={data.netMonth} note="Starts minus cancellations and expirations. Not a reconstructed stock change." /></div></div>
+    <Panel eyebrow="Membership health" title="End-date follow-up queue"><div className="grid grid-cols-2 lg:grid-cols-4 gap-5"><div><p className="text-[12px] text-muted">Ending in 0 to 7 days</p><p className="text-[28px] font-mono mt-1">{count(h?.endDate0To7)}</p></div><div><p className="text-[12px] text-muted">Ending in 8 to 30 days</p><p className="text-[28px] font-mono mt-1">{count(h?.endDate8To30)}</p></div><div><p className="text-[12px] text-muted">Ending in 31 to 60 days</p><p className="text-[28px] font-mono mt-1">{count(h?.endDate31To60)}</p></div><div><p className="text-[12px] text-muted">No recorded end date</p><p className="text-[28px] font-mono mt-1">{count(h?.noEndDate)}</p></div></div><div className="border-t border-border mt-5 pt-4 flex flex-wrap gap-x-8 gap-y-2 text-[12px] text-muted"><span>Active with past-due end dates: {count(h?.endDatePastDue)}</span><span>Suspended memberships: {count(data.suspended)}</span><span>Starts, {data.meta.weeklyFrom} to {data.meta.weeklyTo}: {count(data.newWeek)}</span></div></Panel>
+    <Panel eyebrow="ServiceTitan membership types" title="Membership plans"><p className="text-[12px] text-muted mb-4">Actual plan names for this location. Only plans with active memberships are shown. No assumed tiers or prices.</p><div className="overflow-x-auto"><table className="w-full text-[12px] min-w-[620px]"><thead><tr className="text-muted border-b border-border text-left"><th className="py-3 pr-4">Plan</th><th className="text-right px-3">Active</th><th className="text-right px-3">Mix</th><th className="text-right px-3">0 to 7 days</th><th className="text-right px-3">8 to 30 days</th><th className="text-right px-3">31 to 60 days</th><th className="text-right pl-3">No end date</th></tr></thead><tbody>{plans.map(p=><tr key={p.tier} className="border-b border-border/60"><td className="py-4 pr-4 font-medium"><span className="inline-block rounded-full w-2 h-2 mr-2" style={{background:`var(${p.colorToken})`}} />{p.tier}</td><td className="text-right px-3 font-mono">{count(p.count)}</td><td className="text-right px-3 font-mono">{data.active ? `${(p.count/data.active*100).toFixed(1)}%` : '0%'}</td><td className="text-right px-3 font-mono">{count(p.endDate0To7)}</td><td className="text-right px-3 font-mono">{count(p.endDate8To30)}</td><td className="text-right px-3 font-mono">{count(p.endDate31To60)}</td><td className="text-right pl-3 font-mono">{count(p.noEndDate)}</td></tr>)}</tbody></table>{plans.length===0 && <p className="text-muted text-[13px] py-5">{data.active === 0 ? 'No active memberships in the latest complete snapshot.' : 'Plan data unavailable.'}</p>}</div></Panel>
+    <Panel eyebrow="Observed history" title="Active membership snapshots"><p className="text-[12px] text-muted mb-4">Latest observed snapshot in each month. Missing history is not shown as zero.</p><div className="grid grid-cols-3 md:grid-cols-6 gap-3">{data.history.map((value,i)=><div key={data.historyLabels[i]} className="p-3 rounded border border-border"><div className="text-[11px] text-muted">{data.historyLabels[i]}</div><div className="text-[16px] font-mono mt-1">{value == null ? 'Not available' : count(value)}</div></div>)}</div></Panel>
+    {h && (h.missingStartDate + h.missingCancellationDate + h.missingExpirationDate > 0) && <p className="text-[11px] text-muted leading-relaxed">Data quality: {count(h.missingStartDate)} records missing start dates; {count(h.missingCancellationDate)} canceled records missing cancellation dates; {count(h.missingExpirationDate)} expired records missing end dates. Dated activity excludes missing dates.</p>}
+    <p className="text-[11px] text-muted">Updated {new Date(data.meta.asOf).toLocaleString('en-US', {timeZone:data.meta.timezone})} {data.meta.timezone}. Current stock and renewal risk use the snapshot date; activity uses the selected period.</p>
+  </div>;
 }

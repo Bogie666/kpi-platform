@@ -13,8 +13,9 @@ import type { NextRequest } from 'next/server';
 import { and, eq, asc } from 'drizzle-orm';
 
 import { db } from '@/db/client';
-import { technicianPeriod, technicianRoles, employees } from '@/db/schema';
+import { technicianPeriod, technicianRoles, employees, targets } from '@/db/schema';
 import { resolvePeriod, type Window } from '@/lib/period';
+import { resolvePerformanceGoal, TECHNICIAN_GOAL_METRICS } from '@/lib/performance-goals';
 import type {
   CompareValue,
   Role,
@@ -25,6 +26,7 @@ import type {
 export const dynamic = 'force-dynamic';
 
 interface TechAgg {
+  roleCodes: string[];
   employeeId: number;
   employeeName: string;
   departmentCode: string | null;
@@ -50,6 +52,7 @@ function aggregateTechRows(rows: Array<typeof technicianPeriod.$inferSelect>): T
     const closed = Number(r.closedOpportunities);
     const existing = byEmp.get(empId);
     if (existing) {
+      if (!existing.roleCodes.includes(r.roleCode)) existing.roleCodes.push(r.roleCode);
       existing.revenue += revenue;
       existing.opps += opps;
       existing.closed += closed;
@@ -66,6 +69,7 @@ function aggregateTechRows(rows: Array<typeof technicianPeriod.$inferSelect>): T
       }
     } else {
       byEmp.set(empId, {
+        roleCodes: [r.roleCode],
         employeeId: empId,
         employeeName: r.employeeName,
         departmentCode: r.technicianBusinessUnit,
@@ -179,6 +183,7 @@ export async function GET(req: NextRequest) {
     fetchWindow(period.ly2),
   ]);
 
+  const goalRows = await database.select().from(targets);
   const sorted = sortByRole(cur, role.sortKey);
   const employeeIds = sorted.map((t) => t.employeeId);
   const lyByEmp = new Map(ly.map((r) => [r.employeeId, r]));
@@ -216,6 +221,11 @@ export async function GET(req: NextRequest) {
 
     return {
       rank: i + 1,
+      goals: Object.fromEntries(TECHNICIAN_GOAL_METRICS.map(metric => [metric, resolvePerformanceGoal(goalRows, metric, period.cur.from, period.cur.to, [
+        { scope: 'employee', scopeValue: String(t.employeeId) },
+        ...(t.roleCodes.length === 1 ? [{ scope: 'role', scopeValue: t.roleCodes[0] }] : []),
+      ])])),
+      goalRoleCodes: t.roleCodes,
       employeeId: t.employeeId,
       name: t.employeeName,
       departmentCode: t.departmentCode ?? 'hvac_maint_service',

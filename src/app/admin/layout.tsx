@@ -35,7 +35,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <nav className="flex items-center gap-1 ml-2 overflow-x-auto no-scrollbar">
             <AdminNavLink href="/admin">Home</AdminNavLink>
             <AdminNavLink href="/setup">Setup</AdminNavLink>
-            <AdminNavLink href="/admin/targets">Targets</AdminNavLink>
+            <AdminNavLink href="/admin/targets">Budgets</AdminNavLink>
+            <AdminNavLink href="/admin/technician-targets">Technician Targets</AdminNavLink>
+            <AdminNavLink href="/admin/membership-goals">Membership Goals</AdminNavLink>
             <AdminNavLink href="/admin/settings">Settings</AdminNavLink>
             <AdminNavLink href="/admin/photos">Photos</AdminNavLink>
             <AdminNavLink href="/admin/google-reviews">Google reviews</AdminNavLink>

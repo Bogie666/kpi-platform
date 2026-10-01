@@ -53,7 +53,7 @@ export function callCenterInsights(data: CallCenterResponse, mode: 'ly' | 'ly2')
 export function membershipsInsights(data: MembershipsResponse, mode: 'ly' | 'ly2'): Insight[] {
   const out: Insight[] = [];
   const ly = mode === 'ly2' ? data.ly2 : data.ly;
-  if (!ly) return out;
+  if (!ly || data.active == null || data.newMonth == null || data.churnMonth == null) return out;
   const label = mode === 'ly2' ? '2 years ago' : 'last year';
 
   const delta = data.active - ly.active;

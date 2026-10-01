@@ -15,6 +15,7 @@ import { RoleSubTabs } from './role-sub-tabs';
 import { TeamKPIStrip } from './team-kpi-strip';
 import { Podium } from './podium';
 import { TechLeaderboard } from './tech-leaderboard';
+import { TechnicianGoalsPanel } from './technician-goals-panel';
 
 export function TechniciansView() {
   const [params, setParams] = useDashboardParams();
@@ -98,6 +99,7 @@ export function TechniciansView() {
           )}
 
           <TeamKPIStrip team={data.team} compareMode={params.compare} roleCode={data.role.code} />
+          <TechnicianGoalsPanel technicians={filteredTechnicians} from={data.meta.from} to={data.meta.to} />
 
           {!isAllView && data.technicians.length >= 3 && (
             <Podium

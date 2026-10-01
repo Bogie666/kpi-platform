@@ -11,6 +11,8 @@ interface AdminSection {
 }
 
 const SECTIONS: AdminSection[] = [
+  { href: '/admin/technician-targets', title: 'Technician Targets', description: 'Set role defaults and individual overrides with effective dates. Goals feed technician attainment, independently of Domo budgets.', status: 'ready' },
+  { href: '/admin/membership-goals', title: 'Membership Goals', description: 'Configure active membership inventory and new membership-start goals separately. Company-specific values feed the membership dashboard.', status: 'ready' },
   {
     href: '/setup',
     title: 'Setup wizard',

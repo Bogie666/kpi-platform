@@ -178,6 +178,8 @@ export interface Technician {
   lySpark?: number[];
   /** YYYY-MM labels aligned to `spark` (this year's trailing months). */
   sparkMonths?: string[];
+  goals?: Record<string, { value: number; fullValue: number; effectiveFrom: string; effectiveTo: string; sourceScope: string; sourceLabel: string } | null>;
+  goalRoleCodes?: string[];
 }
 
 export interface TeamRollup {
@@ -338,21 +340,57 @@ export interface AnalyzeResponse {
 }
 
 export interface MembershipsResponse {
-  active: number;
-  goal: number;
-  newMonth: number;
-  churnMonth: number;
-  netMonth: number;
-  newWeek: number;
+  active: number | null;
+  goal: number | null;
+  newGoal: number | null;
+  /** Legacy field names retained, but events cover the selected period. */
+  newMonth: number | null;
+  churnMonth: number | null;
+  netMonth: number | null;
+  newWeek: number | null;
+  expirations: number | null;
+  suspended: number | null;
   ly?: MembershipSnapshot;
   ly2?: MembershipSnapshot;
-  history: number[];             // 12-month active counts
-  lyHistory?: number[];
-  breakdown: MembershipTier[];
+  history: Array<number | null>;
+  historyLabels: string[];
+  lyHistory?: Array<number | null>;
+  breakdown: Array<{
+    tier: string;
+    count: number;
+    lyCount?: number;
+    colorToken: string;
+    endDate0To7: number;
+    endDate8To30: number;
+    endDate31To60: number;
+    noEndDate: number;
+  }>;
+  health: {
+    endDatePastDue: number;
+    endDate0To7: number;
+    endDate8To30: number;
+    endDate31To60: number;
+    endDateOver60: number;
+    noEndDate: number;
+    expiringUnder30: number;
+    expiringUnder30Pct: number | null;
+    missingStartDate: number;
+    missingCancellationDate: number;
+    missingExpirationDate: number;
+  } | null;
+  goalDetails: {
+    active: { value: number; fullValue: number; effectiveFrom: string; effectiveTo: string; sourceScope: string; sourceLabel: string } | null;
+    starts: { value: number; fullValue: number; effectiveFrom: string; effectiveTo: string; sourceScope: string; sourceLabel: string } | null;
+  };
   meta: {
     period: string;
     asOf: string;
     from: string;
     to: string;
+    snapshotDate: string | null;
+    timezone: string;
+    weeklyFrom: string;
+    weeklyTo: string;
+    scope: 'company';
   };
 }
