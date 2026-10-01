@@ -26,7 +26,7 @@ export function OperationsView() {
   const mem = useMemberships(params);
 
   const current = active === 'call_center' ? cc : mem;
-  const meta = 'meta' in (current.data ?? {}) ? (current.data as { meta?: { asOf: string } }).meta : undefined;
+  const meta = 'meta' in (current.data ?? {}) ? (current.data as { meta?: { asOf: string; timezone?: string } }).meta : undefined;
 
   return (
     <div className="flex flex-col gap-6">
@@ -38,7 +38,7 @@ export function OperationsView() {
             <PeriodTabs value={params.period} onChange={(p) => setParams({ period: p })} />
             {meta && (
               <span className="text-meta font-mono text-muted hidden md:inline">
-                as of {fmtAsOf(meta.asOf)}
+                as of {fmtAsOf(meta.asOf, meta.timezone)}
               </span>
             )}
           </>

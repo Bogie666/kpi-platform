@@ -1,11 +1,13 @@
-export function fmtAsOf(iso: string): string {
+export function fmtAsOf(iso: string, timeZone?: string): string {
   const d = new Date(iso);
   const date = d.toLocaleDateString('en-US', {
+    timeZone,
     month: 'short',
     day: 'numeric',
     year: 'numeric',
   });
   const time = d.toLocaleTimeString('en-US', {
+    timeZone,
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
